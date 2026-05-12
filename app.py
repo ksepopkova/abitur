@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import re
 import io
-import yookassa
-from yookassa import Configuration, Payment
 import uuid
+from yookassa import Configuration, Payment
 
 st.set_page_config(page_title="Подбор вузов", layout="wide")
 
@@ -28,7 +27,6 @@ def load_data():
         df["_лист"] = sheet
         sheets[sheet] = df
     full = pd.concat(sheets.values(), ignore_index=True)
-    # Чистим коды специальностей от лишних пробелов
     full.iloc[:, 25] = full.iloc[:, 25].astype(str).str.strip()
     return full
 
@@ -49,14 +47,12 @@ def get_city_options(df):
 
 @st.cache_data
 def get_vuz_by_city(df, city_group):
-    """Список вузов для выбранного города"""
     mask = df.iloc[:, 22].apply(lambda x: get_city_group(x) == city_group)
     vuzы = df[mask].iloc[:, 23].dropna().unique()
     return sorted(set(str(v).strip() for v in vuzы if str(v).strip() not in ("", "nan")))
 
 @st.cache_data
 def get_all_codes(df):
-    """Все уникальные коды специальностей"""
     codes = df.iloc[:, 25].dropna().unique()
     return sorted(set(str(c).strip() for c in codes if str(c).strip() not in ("", "nan")))
 
@@ -146,30 +142,19 @@ def check_row(row, subjects):
 def get_chance(student_score, pb, sb):
     try:
         pb_f, sb_f = float(pb), float(sb)
-        if pb_f <= 1 and sb_f <= 1:
-            return "new"
-        if student_score >= sb_f + 10:
-            return "podstrahovka"
-        if student_score >= sb_f:
-            return "realistic"
-        if student_score > pb_f + 5:
-            return "probable"
-        if student_score >= pb_f - 15:
-            return "risky"
+        if pb_f <= 1 and sb_f <= 1: return "new"
+        if student_score >= sb_f + 10: return "podstrahovka"
+        if student_score >= sb_f: return "realistic"
+        if student_score > pb_f + 5: return "probable"
+        if student_score >= pb_f - 15: return "risky"
         return "unlikely"
     except:
         return "new"
 
 CHANCE_ORDER = {
-    "probable": 0, "ambitious": 0,
-    "realistic": 1,
-    "podstrahovka": 2,
-    "risky": 3,
-    "unlikely": 4,
-    "new": 5,
-    "no_dvi_score": 6,  # добавить
+    "probable": 0, "realistic": 1, "podstrahovka": 2,
+    "risky": 3, "unlikely": 4, "new": 5, "no_dvi_score": 6,
 }
-
 CHANCE_LABEL = {
     "podstrahovka": "🟢 Уверенно",
     "realistic":    "🔵 Реалистично",
@@ -177,9 +162,8 @@ CHANCE_LABEL = {
     "risky":        "🔴 Рискованно",
     "unlikely":     "⚫ Маловероятно",
     "new":          "⬜ Нет данных",
-    "no_dvi_score": "⬜ Нет оценки — не указан балл за ДВИ",  # добавить
+    "no_dvi_score": "⬜ Нет оценки — не указан балл за ДВИ",
 }
-
 PRIORITY_LABEL = {
     "podstrahovka": "3–5",
     "realistic":    "2–3",
@@ -187,7 +171,7 @@ PRIORITY_LABEL = {
     "risky":        "1*",
     "unlikely":     "—",
     "new":          "1*",
-    "no_dvi_score": "—",  # добавить
+    "no_dvi_score": "—",
 }
 
 def build_result_row(row, subjects, gto, attestat, dvi_score=None):
@@ -195,7 +179,6 @@ def build_result_row(row, subjects, gto, attestat, dvi_score=None):
     student_score = calc_student_score(row, subjects)
     achievements = calc_achievements(row, gto, attestat)
     total_score = student_score + achievements
-    # Для специальностей с ДВИ учитываем балл за ДВИ если введён
     dvi_required = cell_has_value(row, OBL["ДВИ"])
     if dvi_required:
         if dvi_score and dvi_score > 0:
@@ -238,45 +221,31 @@ def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attesta
     return pd.DataFrame(results)
 
 def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat, selected_cities=None, dvi_score=None):
-    """Флоу 1 — фильтр по конкретным вузам и кодам"""
-    
-    # Расширяем выбранные коды:
-    # - если выбран xx.xx.01 → добавляем xx.xx.00 из тех же вузов
-    # - если выбран xx.xx.00 → добавляем все xx.xx.YY из тех же вузов
     expanded_codes = set(selected_codes)
-    
     for code in selected_codes:
-        parts = code.split(' ')[0]  # берём только числовую часть
+        parts = code.split(' ')[0]
         if len(parts) >= 7:
-            prefix = parts[:5]  # например "39.03"
-            suffix = parts[5:]  # например ".01" или ".00"
-            
+            prefix = parts[:5]
+            suffix = parts[5:]
             if suffix == '.00':
-                # Выбран многопрофильный — добавляем все специальности группы
                 for _, row in df.iterrows():
-                    if clean_str(row.iloc[23]) not in selected_vuz:
-                        continue
+                    if clean_str(row.iloc[23]) not in selected_vuz: continue
                     row_code = clean_str(row.iloc[25])
-                    row_parts = row_code.split(' ')[0]
-                    if row_parts.startswith(prefix):
+                    if row_code.split(' ')[0].startswith(prefix):
                         expanded_codes.add(row_code)
             else:
-                # Выбрана конкретная специальность — добавляем её xx.xx.00
                 for _, row in df.iterrows():
-                    if clean_str(row.iloc[23]) not in selected_vuz:
-                        continue
+                    if clean_str(row.iloc[23]) not in selected_vuz: continue
                     row_code = clean_str(row.iloc[25])
-                    row_parts = row_code.split(' ')[0]
-                    if row_parts == prefix + '.00':
+                    if row_code.split(' ')[0] == prefix + '.00':
                         expanded_codes.add(row_code)
-
     results = []
     for _, row in df.iterrows():
         city_raw = str(row.iloc[22]).strip()
         city_group = get_city_group(city_raw)
         vuz = clean_str(row.iloc[23])
         code = clean_str(row.iloc[25])
-        if city_group not in selected_cities: continue
+        if selected_cities and city_group not in selected_cities: continue
         if vuz not in selected_vuz: continue
         if code not in expanded_codes: continue
         if not has_budget_places(row.iloc[27]): continue
@@ -286,7 +255,6 @@ def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat,
     return pd.DataFrame(results)
 
 def count_slots(selected_codes):
-    """Считаем реальное количество слотов"""
     slots = set()
     for code in selected_codes:
         parts = code.split(' ')[0]
@@ -296,17 +264,22 @@ def count_slots(selected_codes):
             if suffix == '.00':
                 slots.add(prefix + '.00')
             else:
-                has_multi = any(
-                    c.split(' ')[0] == prefix + '.00'
-                    for c in selected_codes
-                )
-                if has_multi:
-                    slots.add(prefix + '.00')
-                else:
-                    slots.add(code)
+                has_multi = any(c.split(' ')[0] == prefix + '.00' for c in selected_codes)
+                slots.add(prefix + '.00' if has_multi else code)
         else:
             slots.add(code)
     return len(slots)
+
+def create_payment(amount, description, return_url):
+    payment = Payment.create({
+        "amount": {"value": str(amount), "currency": "RUB"},
+        "confirmation": {"type": "redirect", "return_url": return_url},
+        "capture": True,
+        "description": description,
+        "metadata": {"order_id": str(uuid.uuid4())}
+    })
+    return payment.confirmation.confirmation_url, payment.id
+
 def show_disclaimers():
     with st.expander("📖 Как читать таблицу и расставлять приоритеты"):
         st.markdown("""
@@ -314,18 +287,17 @@ def show_disclaimers():
 - 🟢 **Уверенно** — ваш балл выше среднего на 10+. Чаще всего это подстраховочный вариант на который вы точно пройдёте. Рекомендуемый приоритет: **3–5+**
 - 🔵 **Реалистично** — ваш балл выше среднего. Хорошие шансы. Рекомендуемый приоритет: **2–3**
 - 🟡 **Вероятно** — ваш балл ниже среднего, но выше проходного на 5+. Шансы есть. Рекомендуемый приоритет: **1–2**
-- 🔴 **Рискованно** — ваш балл находится близко к проходному (не более чем на 5 выше или 15 ниже). Шансы есть, но небольшие. Ставьте приоритет 1 только если очень хочется и есть варианты с уверенным поступлением
+- 🔴 **Рискованно** — ваш балл близко к проходному (не более чем на 5 выше или 15 ниже). Ставьте приоритет 1 только если очень хочется и есть варианты с уверенным поступлением
 - ⚫ **Маловероятно** — ваш балл ниже проходного на 15+. Шансы крайне малы
 - ⬜ **Нет данных** — новая специальность, статистики нет. Ставьте приоритет 1 только если очень хочется и есть варианты с уверенным поступлением
 
 **Про приоритеты:**
-В одном вузе можно выбрать не более 5 кодов специальностей, но количество образовательных программ (профилей) не ограничено — поэтому приоритетов может быть больше пяти.
+В одном вузе можно выбрать не более 5 кодов специальностей, но количество профилей не ограничено — поэтому приоритетов может быть больше пяти.
 
 - 1–2 приоритет: амбициозные, но могут не сработать
 - 3–4 приоритет: реалистичные, стабильные
 - 4+ приоритет: уверенное зачисление
         """)
-
     st.warning("""
 🔴 **Самое важное — согласие на зачисление**
 
@@ -333,7 +305,6 @@ def show_disclaimers():
 
 Эта таблица поможет выбрать куда подать заявление и документы, но участвовать в конкурсе вы будете только в одном вузе.
     """)
-
     st.markdown("""
 ---
 **Следующий шаг** — отслеживание позиции в конкурсных списках на сайтах вузов или на Госуслугах. Не бойтесь раздутых списков — не все абитуриенты в них ваши реальные конкуренты.
@@ -342,7 +313,7 @@ def show_disclaimers():
 
 **Сроки подачи документов.** Документы в вузы нужно подать до **25 июля**. Срок для ДВИ короче — даты и формат уточняйте на сайте вуза.
 
-**Индивидуальные достижения.** Если у вас есть достижения которые принимает вуз, но они не учтены в нашей таблице — прибавьте их самостоятельно. Помните: суммарно не более 10 баллов. Полный список на сайте вуза. Они могут немного улучшить шансы, но не стоит рассчитывать на кардинальные изменения.
+**Индивидуальные достижения.** Если у вас есть достижения которые принимает вуз, но они не учтены в нашей таблице — прибавьте их самостоятельно. Помните: суммарно не более 10 баллов. Полный список на сайте вуза.
 
 *Таблица только для поступающих на общих основаниях на основном этапе. Квотники и олимпиадники — вам полезнее персональная консультация.*
     """)
@@ -350,34 +321,18 @@ def show_disclaimers():
         "<p style='font-size:11px; color:#aaaaaa;'>Данный сервис носит исключительно информационный характер и не является официальной консультацией. Результаты подбора основаны на статистических данных прошлых лет и не гарантируют поступление. Приёмная кампания зависит от множества факторов которые невозможно предсказать заранее — статистика прошлых лет обычно хорошо отражает реальность, но никто не застрахован от неожиданных скачков конкурса и изменения проходных баллов. Сервис не несёт ответственности за решения принятые на основе предоставленной информации.</p>",
         unsafe_allow_html=True
     )
-def create_payment(amount, description, return_url):
-    payment = Payment.create({
-        "amount": {
-            "value": str(amount),
-            "currency": "RUB"
-        },
-        "confirmation": {
-            "type": "redirect",
-            "return_url": return_url
-        },
-        "capture": True,
-        "description": description,
-        "metadata": {
-            "order_id": str(uuid.uuid4())
-        }
-    })
-    return payment.confirmation.confirmation_url, payment.id
+
 def show_results(result, flow=1, paid=False):
     if len(result) == 0:
         st.warning("По вашему запросу ничего не найдено.")
         return
 
     st.success(f"Найдено {len(result)} специальностей")
+    result = result.copy()
     result["chance_order"] = result["Шансы"].map(CHANCE_ORDER)
     result = result.sort_values(["Город", "Вуз", "chance_order"]).drop("chance_order", axis=1)
     result["Шансы"] = result["Шансы"].map(CHANCE_LABEL)
 
-    # Флоу 1 — предупреждение если в вузе больше 5 слотов
     if flow == 1:
         vuz_counts = result.groupby("Вуз")["Код и специальность"].nunique()
         overloaded = vuz_counts[vuz_counts > 5]
@@ -385,52 +340,29 @@ def show_results(result, flow=1, paid=False):
             for vuz, count in overloaded.items():
                 st.warning(f"⚠️ {vuz}: найдено {count} кодов специальностей — при подаче документов выберите не более 5.")
 
-    # Флоу 2 — автоматически оставляем топ-5 по каждому вузу
     if flow == 2:
         CHANCE_PRIORITY = {
-    "🟡 Вероятно": 0,
-    "🔵 Реалистично": 1,
-    "🟢 Уверенно": 2,
-    "🔴 Рискованно": 3,
-    "⚫ Маловероятно": 4,
-    "⬜ Нет данных": 5
-}
+            "🟡 Вероятно": 0, "🔵 Реалистично": 1, "🟢 Уверенно": 2,
+            "🔴 Рискованно": 3, "⚫ Маловероятно": 4, "⬜ Нет данных": 5,
+            "⬜ Нет оценки — не указан балл за ДВИ": 6,
+        }
         result["_chance_p"] = result["Шансы"].map(CHANCE_PRIORITY)
         result["_pb_num"] = pd.to_numeric(result["Проходной балл"], errors="coerce").fillna(0)
         result = result.sort_values(["Город", "Вуз", "_chance_p", "_pb_num"],
                                      ascending=[True, True, True, False])
         result = result.drop(columns=["_pb_num"])
 
-        # Считаем хорошие варианты по каждому вузу
         good_zones = {"🟡 Вероятно", "🔵 Реалистично", "🟢 Уверенно"}
-        # Исключаем строки где ПБ=1 и СБ=1 (только квотники/олимпиадники, общего конкурса не было)
         real_competition = result[
             ~((pd.to_numeric(result["Проходной балл"], errors="coerce") <= 1) &
               (pd.to_numeric(result["Средний балл"], errors="coerce") <= 1))
         ]
         vuz_good_count = real_competition[real_competition["Шансы"].isin(good_zones)].groupby("Вуз").size()
-
-        # Разделяем на основные (3+) и с пометкой (1-2)
         main_vuz = vuz_good_count[vuz_good_count >= 3].sort_values(ascending=False)
         few_vuz = vuz_good_count[(vuz_good_count >= 1) & (vuz_good_count < 3)].sort_values(ascending=False)
-
-        # Берём топ-7 основных вузов
         top_vuz = list(main_vuz.head(7).index)
         few_vuz_list = list(few_vuz.index)
 
-        def top5_per_vuz(group):
-            seen_codes = set()
-            rows = []
-            for _, row in group.iterrows():
-                code_prefix = row["Код и специальность"].split(" ")[0][:5]
-                if code_prefix not in seen_codes:
-                    if len(seen_codes) >= 5:
-                        continue
-                    seen_codes.add(code_prefix)
-                rows.append(row)
-            return pd.DataFrame(rows)
-
-        # Основные вузы
         result_main_rows = []
         for vuz in top_vuz:
             vuz_df = result[result["Вуз"] == vuz].copy()
@@ -438,14 +370,12 @@ def show_results(result, flow=1, paid=False):
             for _, row in vuz_df.iterrows():
                 code_prefix = row["Код и специальность"].split(" ")[0][:5]
                 if code_prefix not in seen_codes:
-                    if len(seen_codes) >= 5:
-                        continue
+                    if len(seen_codes) >= 5: continue
                     seen_codes.add(code_prefix)
                 result_main_rows.append(row)
         result_main = pd.DataFrame(result_main_rows).reset_index(drop=True)
         result_main = result_main.drop(columns=["_chance_p"])
 
-        # Вузы с малым числом вариантов
         result_few_rows = []
         for vuz in few_vuz_list:
             vuz_df = result[result["Вуз"] == vuz].copy()
@@ -453,8 +383,7 @@ def show_results(result, flow=1, paid=False):
             for _, row in vuz_df.iterrows():
                 code_prefix = row["Код и специальность"].split(" ")[0][:5]
                 if code_prefix not in seen_codes:
-                    if len(seen_codes) >= 5:
-                        continue
+                    if len(seen_codes) >= 5: continue
                     seen_codes.add(code_prefix)
                 result_few_rows.append(row)
         result_few = pd.DataFrame(result_few_rows).reset_index(drop=True) if result_few_rows else pd.DataFrame()
@@ -463,11 +392,9 @@ def show_results(result, flow=1, paid=False):
 
         result = result_main
         st.info(f"Показаны топ-{len(top_vuz)} вузов с наибольшим количеством подходящих специальностей")
-
         if len(result_few) > 0:
             st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
-    # Превью — только основные колонки без деталей
     if not paid:
         preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
         preview = result[[c for c in preview_cols if c in result.columns]].copy()
@@ -484,7 +411,7 @@ def show_results(result, flow=1, paid=False):
 
 **Стоимость: 1 790 руб.**
         """)
-        if st.button("💳 Оплатить и получить полную таблицу", type="primary"):
+        if st.button("💳 Оплатить и получить полную таблицу", type="primary", key="pay_btn"):
             try:
                 return_url = "https://vuzline-2026.streamlit.app/?paid=true"
                 payment_url, payment_id = create_payment(
@@ -493,8 +420,8 @@ def show_results(result, flow=1, paid=False):
                     return_url=return_url
                 )
                 st.session_state["payment_id"] = payment_id
-                st.markdown(f'<meta http-equiv="refresh" content="0; url={payment_url}">', unsafe_allow_html=True)
-                st.info(f"Перенаправляем на страницу оплаты... Если не перешли автоматически — [нажмите здесь]({payment_url})")
+                st.session_state["payment_url"] = payment_url
+                st.rerun()
             except Exception as e:
                 st.error(f"Ошибка при создании платежа: {e}")
     else:
@@ -513,14 +440,17 @@ def show_results(result, flow=1, paid=False):
                     col_idx = result.columns.get_loc(col_name)
                     worksheet.set_column(col_idx, col_idx, 12, num_fmt)
         st.download_button(
+            "📥 Скачать таблицу Excel",
+            data=buf.getvalue(),
+            file_name="результаты_подбора.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         st.success("""
 💡 **Хотите разобрать результаты вместе?**
 Запишитесь на персональную консультацию со скидкой 500 руб. по промокоду **VUZLINE500**
         """)
 
-    # Показываем вузы с малым числом вариантов
-    if flow == 2 and 'result_few' in locals() and len(result_few) > 0:
+    if flow == 2 and 'result_few' in dir() and len(result_few) > 0:
         with st.expander("📋 Вузы с 1-2 подходящими вариантами"):
             st.caption("В этих вузах мало подходящих специальностей под ваши предметы и баллы")
             st.dataframe(result_few, use_container_width=True, hide_index=True)
@@ -528,23 +458,37 @@ def show_results(result, flow=1, paid=False):
 
 # ─── ИНТЕРФЕЙС ────────────────────────────────────────────────────────────
 df = load_data()
-# Инициализация ЮКассы
 Configuration.account_id = st.secrets["YUKASSA_SHOP_ID"]
 Configuration.secret_key = st.secrets["YUKASSA_SECRET_KEY"]
 city_options = get_city_options(df)
 all_codes = get_all_codes(df)
+
+# Проверяем параметр оплаты из URL
+query_params = st.query_params
+if query_params.get("paid", "") == "true":
+    st.session_state["paid"] = True
 
 st.title("🎓 Подбор вузов по ЕГЭ")
 
 st.info("""
 ⚠️ **Важно перед использованием**
 
-Этот сервис подходит только для поступающих **на на бюджет на общих основаниях на основном этапе** приёмной кампании 2026.
+Этот сервис подходит только для поступающих **на бюджет на общих основаниях на основном этапе** приёмной кампании 2026.
 
 Если вы поступаете по квоте, как победитель олимпиады или с другими особыми условиями — данные прогнозы вам не подойдут. С такими кейсами приходите на персональную консультацию.
 """)
 
-# Выбор флоу
+# Если есть payment_url — показываем кнопку перехода к оплате
+if "payment_url" in st.session_state:
+    st.link_button("💳 Перейти к оплате (1 790 руб.)", st.session_state["payment_url"], type="primary")
+    st.caption("После оплаты вернитесь на эту страницу — таблица откроется автоматически")
+    if st.button("❌ Отменить и начать заново"):
+        del st.session_state["payment_url"]
+        if "payment_id" in st.session_state:
+            del st.session_state["payment_id"]
+        st.rerun()
+    st.stop()
+
 flow = st.radio(
     "Как вы хотите искать?",
     ["🔍 Подобрать варианты по моим ЕГЭ",
@@ -554,7 +498,6 @@ flow = st.radio(
 
 st.divider()
 
-# ─── Общий блок: баллы ЕГЭ и достижения (для обоих флоу) ─────────────────
 st.subheader("Введите баллы ЕГЭ")
 subjects = {}
 
@@ -602,12 +545,10 @@ if flow == "🔍 Подобрать варианты по моим ЕГЭ":
         "Города поиска *", city_options, max_selections=3,
         help="Москва и МО / Питер и ЛО идут как один выбор"
     )
-
     show_dvi = st.toggle(
         "Показывать специальности с ДВИ", value=False,
         help="ДВИ — дополнительное вступительное испытание в вузе"
     )
-
     if st.button("🔍 Найти специальности", type="primary"):
         errors = []
         if not subjects.get("Русский язык"): errors.append("Введите балл за Русский язык")
@@ -619,9 +560,12 @@ if flow == "🔍 Подобрать варианты по моим ЕГЭ":
             with st.spinner("Подбираем варианты..."):
                 result = filter_rows_flow2(df, subjects, show_dvi, selected_cities, gto_val, attestat, dvi_score)
             if len(result) == 0:
-                st.warning("По вашему запросу ничего не найдено. Попробуйте добавить предметы, включить ДВИ или выбрать другие города.")
+                st.warning("По вашему запросу ничего не найдено.")
             else:
-                show_results(result, flow=2)
+                st.session_state["last_result"] = result.to_dict()
+                st.session_state["last_flow"] = 2
+                paid = st.session_state.get("paid", False)
+                show_results(result, flow=2, paid=paid)
 
 # ─── ФЛОУ 1 ───────────────────────────────────────────────────────────────
 else:
@@ -631,18 +575,14 @@ else:
         help="Москва и МО / Питер и ЛО идут как один выбор",
         key="cities_flow1"
     )
-
-    # Сначала коды — потом вузы
     st.subheader("Выберите коды специальностей (до 5)")
     if len(subjects) >= 2:
         available_codes = []
         seen = set()
         for _, row in df.iterrows():
-            # Фильтр по городу если выбран
             if selected_cities_flow1:
                 city_raw = str(row.iloc[22]).strip()
-                if get_city_group(city_raw) not in selected_cities_flow1:
-                    continue
+                if get_city_group(city_raw) not in selected_cities_flow1: continue
             status = check_row(row, subjects)
             if status is not None:
                 code = clean_str(row.iloc[25])
@@ -662,31 +602,25 @@ else:
     if selected_codes:
         slots = count_slots(selected_codes)
         if slots < len(selected_codes):
-            st.info(f"Выбрано {len(selected_codes)} кодов — засчитывается как {slots} слота из 5 (многопрофильные конкурсы объединены)")
+            st.info(f"Выбрано {len(selected_codes)} кодов — засчитывается как {slots} слота из 5")
         else:
             st.info(f"Использовано {slots} из 5 слотов")
 
-    # Вузы — фильтруются под выбранные коды и город
     st.subheader("Выберите вузы (до 5)")
     if selected_cities_flow1:
-        # Собираем вузы из выбранных городов
         vuz_options = []
         for city_group in selected_cities_flow1:
             vuz_options.extend(get_vuz_by_city(df, city_group))
         vuz_options = sorted(set(vuz_options))
-
-        # Если выбраны коды — фильтруем вузы под них
         if selected_codes:
             filtered_vuz = set()
             for _, row in df.iterrows():
                 city_raw = str(row.iloc[22]).strip()
-                if get_city_group(city_raw) not in selected_cities_flow1:
-                    continue
+                if get_city_group(city_raw) not in selected_cities_flow1: continue
                 code = clean_str(row.iloc[25])
                 if code in selected_codes:
                     vuz = clean_str(row.iloc[23])
-                    if vuz:
-                        filtered_vuz.add(vuz)
+                    if vuz: filtered_vuz.add(vuz)
             vuz_options = sorted(filtered_vuz)
             st.caption(f"Показаны вузы где есть выбранные специальности ({len(vuz_options)})")
     else:
@@ -704,8 +638,12 @@ else:
             for e in errors: st.error(e)
         else:
             with st.spinner("Ищем по вашему списку..."):
-                result = filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto_val, attestat, selected_cities_flow1, dvi_score)
+                result = filter_rows_flow1(df, subjects, selected_vuz, selected_codes,
+                                           gto_val, attestat, selected_cities_flow1, dvi_score)
             if len(result) == 0:
-                st.warning("По выбранным вузам и специальностям ничего не найдено. Проверьте что ваши баллы соответствуют требованиям вуза.")
+                st.warning("По выбранным вузам и специальностям ничего не найдено.")
             else:
-                show_results(result, flow=1)
+                st.session_state["last_result"] = result.to_dict()
+                st.session_state["last_flow"] = 1
+                paid = st.session_state.get("paid", False)
+                show_results(result, flow=1, paid=paid)
