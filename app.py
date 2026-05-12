@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import re
 import io
+import yookassa
+from yookassa import Configuration, Payment
+import uuid
 
 st.set_page_config(page_title="Подбор вузов", layout="wide")
 
@@ -163,7 +166,8 @@ CHANCE_ORDER = {
     "podstrahovka": 2,
     "risky": 3,
     "unlikely": 4,
-    "new": 5
+    "new": 5,
+    "no_dvi_score": 6,  # добавить
 }
 
 CHANCE_LABEL = {
@@ -173,6 +177,7 @@ CHANCE_LABEL = {
     "risky":        "🔴 Рискованно",
     "unlikely":     "⚫ Маловероятно",
     "new":          "⬜ Нет данных",
+    "no_dvi_score": "⬜ Нет оценки — не указан балл за ДВИ",  # добавить
 }
 
 PRIORITY_LABEL = {
@@ -182,14 +187,24 @@ PRIORITY_LABEL = {
     "risky":        "1*",
     "unlikely":     "—",
     "new":          "1*",
+    "no_dvi_score": "—",  # добавить
 }
 
-def build_result_row(row, subjects, gto, attestat):
+def build_result_row(row, subjects, gto, attestat, dvi_score=None):
     pb, sb = row.iloc[28], row.iloc[29]
     student_score = calc_student_score(row, subjects)
     achievements = calc_achievements(row, gto, attestat)
     total_score = student_score + achievements
-    chance = get_chance(total_score, pb, sb)
+    # Для специальностей с ДВИ учитываем балл за ДВИ если введён
+    dvi_required = cell_has_value(row, OBL["ДВИ"])
+    if dvi_required:
+        if dvi_score and dvi_score > 0:
+            total_score += dvi_score
+            chance = get_chance(total_score, pb, sb)
+        else:
+            chance = "no_dvi_score"
+    else:
+        chance = get_chance(total_score, pb, sb)
     return {
         "Город":               clean_str(row.iloc[22]),
         "Вуз":                 clean_str(row.iloc[23]),
@@ -210,7 +225,7 @@ def build_result_row(row, subjects, gto, attestat):
         "Аттестат":            to_num(row.iloc[35]),
     }
 
-def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attestat):
+def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attestat, dvi_score=None):
     results = []
     for _, row in df.iterrows():
         city_raw = str(row.iloc[22]).strip()
@@ -219,10 +234,10 @@ def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attesta
         status = check_row(row, subjects)
         if status is None: continue
         if status == "with_dvi" and not show_dvi: continue
-        results.append(build_result_row(row, subjects, gto, attestat))
+        results.append(build_result_row(row, subjects, gto, attestat, dvi_score))
     return pd.DataFrame(results)
 
-def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat, selected_cities=None):
+def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat, selected_cities=None, dvi_score=None):
     """Флоу 1 — фильтр по конкретным вузам и кодам"""
     
     # Расширяем выбранные коды:
@@ -267,7 +282,7 @@ def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat,
         if not has_budget_places(row.iloc[27]): continue
         status = check_row(row, subjects)
         if status is None: continue
-        results.append(build_result_row(row, subjects, gto, attestat))
+        results.append(build_result_row(row, subjects, gto, attestat, dvi_score))
     return pd.DataFrame(results)
 
 def count_slots(selected_codes):
@@ -335,7 +350,24 @@ def show_disclaimers():
         "<p style='font-size:11px; color:#aaaaaa;'>Данный сервис носит исключительно информационный характер и не является официальной консультацией. Результаты подбора основаны на статистических данных прошлых лет и не гарантируют поступление. Приёмная кампания зависит от множества факторов которые невозможно предсказать заранее — статистика прошлых лет обычно хорошо отражает реальность, но никто не застрахован от неожиданных скачков конкурса и изменения проходных баллов. Сервис не несёт ответственности за решения принятые на основе предоставленной информации.</p>",
         unsafe_allow_html=True
     )
-def show_results(result, flow=1):
+def create_payment(amount, description, return_url):
+    payment = Payment.create({
+        "amount": {
+            "value": str(amount),
+            "currency": "RUB"
+        },
+        "confirmation": {
+            "type": "redirect",
+            "return_url": return_url
+        },
+        "capture": True,
+        "description": description,
+        "metadata": {
+            "order_id": str(uuid.uuid4())
+        }
+    })
+    return payment.confirmation.confirmation_url, payment.id
+def show_results(result, flow=1, paid=False):
     if len(result) == 0:
         st.warning("По вашему запросу ничего не найдено.")
         return
@@ -435,7 +467,57 @@ def show_results(result, flow=1):
         if len(result_few) > 0:
             st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
-    st.dataframe(result, use_container_width=True, hide_index=True)
+    # Превью — только основные колонки без деталей
+    if not paid:
+        preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
+        preview = result[[c for c in preview_cols if c in result.columns]].copy()
+        st.dataframe(preview, use_container_width=True, hide_index=True)
+        st.info("""
+🔒 **Полная таблица доступна после оплаты**
+
+В полной версии вы увидите:
+- Проходной и средний балл
+- Ваш конкурсный балл
+- Оценку шансов и рекомендуемый приоритет
+- Баллы за индивидуальные достижения
+- Возможность скачать таблицу в Excel
+
+**Стоимость: 1 790 руб.**
+        """)
+        if st.button("💳 Оплатить и получить полную таблицу", type="primary"):
+            try:
+                return_url = "https://vuzline-2026.streamlit.app/?paid=true"
+                payment_url, payment_id = create_payment(
+                    amount=1790,
+                    description="Подбор вузов по ЕГЭ — полная таблица",
+                    return_url=return_url
+                )
+                st.session_state["payment_id"] = payment_id
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={payment_url}">', unsafe_allow_html=True)
+                st.info(f"Перенаправляем на страницу оплаты... Если не перешли автоматически — [нажмите здесь]({payment_url})")
+            except Exception as e:
+                st.error(f"Ошибка при создании платежа: {e}")
+    else:
+        st.dataframe(result, use_container_width=True, hide_index=True)
+        show_disclaimers()
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            result.to_excel(writer, index=False, sheet_name="Результаты")
+            workbook = writer.book
+            worksheet = writer.sheets["Результаты"]
+            num_fmt = workbook.add_format({"num_format": "0"})
+            for col_name in ["Мест", "Проходной балл", "Средний балл",
+                              "Ваш балл (ЕГЭ)", "Конкурсный балл",
+                              "ГТО золото", "ГТО серебро", "ГТО бронза", "Аттестат"]:
+                if col_name in result.columns:
+                    col_idx = result.columns.get_loc(col_name)
+                    worksheet.set_column(col_idx, col_idx, 12, num_fmt)
+        st.download_button(
+        )
+        st.success("""
+💡 **Хотите разобрать результаты вместе?**
+Запишитесь на персональную консультацию со скидкой 500 руб. по промокоду **VUZLINE500**
+        """)
 
     # Показываем вузы с малым числом вариантов
     if flow == 2 and 'result_few' in locals() and len(result_few) > 0:
@@ -443,27 +525,12 @@ def show_results(result, flow=1):
             st.caption("В этих вузах мало подходящих специальностей под ваши предметы и баллы")
             st.dataframe(result_few, use_container_width=True, hide_index=True)
 
-    show_disclaimers()
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-        result.to_excel(writer, index=False, sheet_name="Результаты")
-        workbook = writer.book
-        worksheet = writer.sheets["Результаты"]
-        num_fmt = workbook.add_format({"num_format": "0"})
-        for col_name in ["Мест", "Проходной балл", "Средний балл",
-                          "Ваш балл (ЕГЭ)", "Конкурсный балл",
-                          "ГТО золото", "ГТО серебро", "ГТО бронза", "Аттестат"]:
-            if col_name in result.columns:
-                col_idx = result.columns.get_loc(col_name)
-                worksheet.set_column(col_idx, col_idx, 12, num_fmt)
-    st.download_button(
-        "📥 Скачать таблицу Excel",
-        data=buf.getvalue(),
-        file_name="результаты_подбора.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+
 # ─── ИНТЕРФЕЙС ────────────────────────────────────────────────────────────
 df = load_data()
+# Инициализация ЮКассы
+Configuration.account_id = st.secrets["YUKASSA_SHOP_ID"]
+Configuration.secret_key = st.secrets["YUKASSA_SECRET_KEY"]
 city_options = get_city_options(df)
 all_codes = get_all_codes(df)
 
@@ -517,6 +584,13 @@ with col1:
 with col2:
     attestat = st.checkbox("Аттестат с отличием")
 
+dvi_score = st.number_input(
+    "Балл за ДВИ (если уже известен)",
+    min_value=0, max_value=1000,
+    value=None, placeholder="Необязательно",
+    help="ДВИ — дополнительное вступительное испытание в вузе. Если несколько ДВИ — введите суммарный балл."
+)
+
 gto_val = gto if gto != "Нет" else None
 
 st.divider()
@@ -543,7 +617,7 @@ if flow == "🔍 Подобрать варианты по моим ЕГЭ":
             for e in errors: st.error(e)
         else:
             with st.spinner("Подбираем варианты..."):
-                result = filter_rows_flow2(df, subjects, show_dvi, selected_cities, gto_val, attestat)
+                result = filter_rows_flow2(df, subjects, show_dvi, selected_cities, gto_val, attestat, dvi_score)
             if len(result) == 0:
                 st.warning("По вашему запросу ничего не найдено. Попробуйте добавить предметы, включить ДВИ или выбрать другие города.")
             else:
@@ -630,7 +704,7 @@ else:
             for e in errors: st.error(e)
         else:
             with st.spinner("Ищем по вашему списку..."):
-                result = filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto_val, attestat, selected_cities_flow1)
+                result = filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto_val, attestat, selected_cities_flow1, dvi_score)
             if len(result) == 0:
                 st.warning("По выбранным вузам и специальностям ничего не найдено. Проверьте что ваши баллы соответствуют требованиям вуза.")
             else:
