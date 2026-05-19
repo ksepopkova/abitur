@@ -1,4 +1,3 @@
-st.write("DEBUG URL params:", dict(st.query_params))
 import streamlit as st
 import pandas as pd
 import re
