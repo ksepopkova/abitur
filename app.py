@@ -281,32 +281,77 @@ def count_slots(selected_codes):
 if "payment_store" not in st.session_state:
     st.session_state["payment_store"] = {}
 
+import gspread
+from google.oauth2.service_account import Credentials
+
+def get_sheets_client():
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://spreadsheets.google.com/feeds",
+                "https://www.googleapis.com/auth/drive"]
+    )
+    return gspread.authorize(creds)
+
 def save_payment_data(order_id, result_df, search_params, user_email, flow, payment_id=None):
-    st.session_state["payment_store"][order_id] = {
-        "payment_id": payment_id,
-        "user_email": user_email,
-        "flow": flow,
-        "search_params": search_params,
-        "result": result_df.to_dict(),
-        "created_at": datetime.now().isoformat()
-    }
-    # Также сохраняем в файл как резервную копию
     try:
-        filename = f"payment_{order_id}.json"
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(st.session_state["payment_store"][order_id], f, ensure_ascii=False)
+        client = get_sheets_client()
+        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        import json as json_lib
+        row = [
+            order_id,
+            payment_id or "",
+            user_email,
+            str(flow),
+            json_lib.dumps(search_params, ensure_ascii=False),
+            json_lib.dumps(result_df.to_dict(), ensure_ascii=False),
+            datetime.now().isoformat()
+        ]
+        sheet.append_row(row)
+    except Exception as e:
+        st.warning(f"Не удалось сохранить в Google Sheets: {e}")
+    # Резервно в файл
+    try:
+        data = {
+            "payment_id": payment_id,
+            "user_email": user_email,
+            "flow": flow,
+            "search_params": search_params,
+            "result": result_df.to_dict(),
+        }
+        with open(f"payment_{order_id}.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
     except:
         pass
 
 def load_payment_data(order_id):
-    # Сначала ищем в session_state
+    # Сначала session_state
     if order_id in st.session_state.get("payment_store", {}):
         return st.session_state["payment_store"][order_id]
-    # Потом в файле
-    filename = f"payment_{order_id}.json"
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            return json.load(f)
+    # Потом Google Sheets
+    try:
+        client = get_sheets_client()
+        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        records = sheet.get_all_values()
+        for row in records:
+            if row and row[0] == order_id:
+                import json as json_lib
+                return {
+                    "payment_id": row[1],
+                    "user_email": row[2],
+                    "flow": row[3],
+                    "search_params": json_lib.loads(row[4]),
+                    "result": json_lib.loads(row[5]),
+                }
+    except Exception as e:
+        st.warning(f"Не удалось загрузить из Google Sheets: {e}")
+    # Потом файл
+    try:
+        filename = f"payment_{order_id}.json"
+        if os.path.exists(filename):
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except:
+        pass
     return None
 
 def check_payment_status(payment_id):
@@ -790,7 +835,7 @@ if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
                 st.session_state[f"sent_{order_id_from_url}"] = True
                 st.success(f"✅ Таблица отправлена на {data['user_email']}!")
             else:
-                st.error("Ошибка отправки письма. Напишите нам и мы пришлём вручную.")
+                st.error("Ошибка отправки письма. Напишите нам на result@vuzline.ru и мы пришлём таблицу вручную.")
     else:
         st.info("Платёж обрабатывается... Обновите страницу через минуту.")
 
