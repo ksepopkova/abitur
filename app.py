@@ -483,6 +483,7 @@ def send_email(to_email, result_df, search_params):
         # ── Лист 2: Результаты ──
         ws = wb.create_sheet("Результаты")
         df_out = result_df.copy()
+        df_out = df_out.astype(str).replace('None', '').replace('nan', '')
         chance_label = {
             "podstrahovka": "Уверенно", "realistic": "Реалистично",
             "probable": "Вероятно", "risky": "Рискованно",
