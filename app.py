@@ -3,6 +3,8 @@ import pandas as pd
 import re
 import io
 import uuid
+import json
+import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -275,7 +277,35 @@ def count_slots(selected_codes):
         else:
             slots.add(code)
     return len(slots)
+def save_payment_data(payment_id, result_df, search_params, user_email, flow):
+    """Сохраняем данные поиска привязанные к payment_id"""
+    data = {
+        "payment_id": payment_id,
+        "user_email": user_email,
+        "flow": flow,
+        "search_params": search_params,
+        "result": result_df.to_dict(),
+        "created_at": datetime.now().isoformat()
+    }
+    filename = f"payment_{payment_id}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
 
+def load_payment_data(payment_id):
+    """Загружаем данные по payment_id"""
+    filename = f"payment_{payment_id}.json"
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None
+
+def check_payment_status(payment_id):
+    """Проверяем статус платежа через API ЮКассы"""
+    try:
+        payment = Payment.find_one(payment_id)
+        return payment.status == "succeeded"
+    except:
+        return False
 def create_payment(amount, description, return_url):
     payment = Payment.create({
         "amount": {"value": str(amount), "currency": "RUB"},
@@ -486,11 +516,28 @@ def show_results(result, flow=1, paid=False):
                 st.error("Введите email для получения таблицы")
             else:
                 try:
-                    return_url = "https://vuzline-2026.streamlit.app/?paid=true"
+                    return_url = f"https://vuzline-2026.streamlit.app/?payment_id={payment_id}"
                     payment_url, payment_id = create_payment(
                         amount=1790,
                         description="Подбор вузов по ЕГЭ — полная таблица",
                         return_url=return_url
+                    )
+                    # Сохраняем данные в файл
+                    search_params = {
+                        "Дата и время": datetime.now().strftime("%d.%m.%Y %H:%M"),
+                        "Email": st.session_state.get("user_email", ""),
+                        "Предметы и баллы": str(st.session_state.get("last_subjects", {})),
+                        "Города": str(st.session_state.get("last_cities", [])),
+                        "ГТО": str(st.session_state.get("last_gto", "Нет")),
+                        "Аттестат": str(st.session_state.get("last_attestat", False)),
+                        "Балл за ДВИ": str(st.session_state.get("last_dvi", "")),
+                        "Payment ID": payment_id,
+                    }
+                    result_df = pd.DataFrame.from_dict(st.session_state["last_result"])
+                    save_payment_data(
+                        payment_id, result_df, search_params,
+                        st.session_state["user_email"],
+                        st.session_state.get("last_flow", 2)
                     )
                     st.session_state["payment_id"] = payment_id
                     st.session_state["payment_url"] = payment_url
@@ -541,26 +588,24 @@ Configuration.secret_key = st.secrets["YUKASSA_SECRET_KEY"]
 city_options = get_city_options(df)
 all_codes = get_all_codes(df)
 
-# Проверяем параметр оплаты из URL
+# Проверяем payment_id из URL и отправляем письмо
 query_params = st.query_params
-if query_params.get("paid", "") == "true" and not st.session_state.get("email_sent"):
-    st.session_state["paid"] = True
-    # Отправляем письмо если есть результаты и email
-    if "last_result" in st.session_state and "user_email" in st.session_state:
-        result_df = pd.DataFrame.from_dict(st.session_state["last_result"])
-        search_params = {
-            "Дата и время": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            "Email": st.session_state["user_email"],
-            "Предметы и баллы": str(st.session_state.get("last_subjects", {})),
-            "Города": str(st.session_state.get("last_cities", [])),
-            "ГТО": st.session_state.get("last_gto", "Нет"),
-            "Аттестат": st.session_state.get("last_attestat", False),
-            "Балл за ДВИ": st.session_state.get("last_dvi", ""),
-            "Payment ID": st.session_state.get("payment_id", ""),
-        }
-        if send_email(st.session_state["user_email"], result_df, search_params):
-            st.session_state["email_sent"] = True
-            st.success("✅ Таблица отправлена на ваш email!")
+payment_id_from_url = query_params.get("payment_id", "")
+
+if payment_id_from_url and not st.session_state.get(f"sent_{payment_id_from_url}"):
+    if check_payment_status(payment_id_from_url):
+        data = load_payment_data(payment_id_from_url)
+        if data:
+            result_df = pd.DataFrame.from_dict(data["result"])
+            if send_email(data["user_email"], result_df, data["search_params"]):
+                st.session_state[f"sent_{payment_id_from_url}"] = True
+                st.success(f"✅ Таблица отправлена на {data['user_email']}!")
+            else:
+                st.error("Ошибка отправки письма. Напишите нам и мы пришлём вручную.")
+        else:
+            st.warning("Данные платежа не найдены. Напишите нам.")
+    else:
+        st.info("Платёж обрабатывается... Обновите страницу через минуту.")
 
 st.title("🎓 Подбор вузов по ЕГЭ")
 
