@@ -3,6 +3,12 @@ import pandas as pd
 import re
 import io
 import uuid
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+from datetime import datetime
 from yookassa import Configuration, Payment
 
 st.set_page_config(page_title="Подбор вузов", layout="wide")
@@ -321,7 +327,71 @@ def show_disclaimers():
         "<p style='font-size:11px; color:#aaaaaa;'>Данный сервис носит исключительно информационный характер и не является официальной консультацией. Результаты подбора основаны на статистических данных прошлых лет и не гарантируют поступление. Приёмная кампания зависит от множества факторов которые невозможно предсказать заранее — статистика прошлых лет обычно хорошо отражает реальность, но никто не застрахован от неожиданных скачков конкурса и изменения проходных баллов. Сервис не несёт ответственности за решения принятые на основе предоставленной информации.</p>",
         unsafe_allow_html=True
     )
+def send_email(to_email, result_df, search_params):
+    """Отправляем таблицу результатов на email"""
+    try:
+        # Создаём Excel файл в памяти
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            result_df.to_excel(writer, index=False, sheet_name="Результаты")
+            # Лист с параметрами запроса
+            params_df = pd.DataFrame([search_params])
+            params_df.to_excel(writer, index=False, sheet_name="Запрос")
+            workbook = writer.book
+            worksheet = writer.sheets["Результаты"]
+            num_fmt = workbook.add_format({"num_format": "0"})
+            for col_name in ["Мест", "Проходной балл", "Средний балл",
+                              "Ваш балл (ЕГЭ)", "Конкурсный балл",
+                              "ГТО золото", "ГТО серебро", "ГТО бронза", "Аттестат"]:
+                if col_name in result_df.columns:
+                    col_idx = result_df.columns.get_loc(col_name)
+                    worksheet.set_column(col_idx, col_idx, 12, num_fmt)
+        buf.seek(0)
 
+        # Создаём письмо
+        msg = MIMEMultipart()
+        msg["From"] = st.secrets["EMAIL_FROM"]
+        msg["To"] = to_email
+        msg["Subject"] = "Ваша таблица подбора вузов — Vuzline"
+
+        body = """
+Здравствуйте!
+
+Ваша персональная таблица подбора вузов готова. Она прикреплена к этому письму.
+
+В таблице два листа:
+- Результаты — все подходящие специальности с оценкой шансов
+- Запрос — параметры вашего поиска
+
+Если у вас возникнут вопросы или вы хотите разобрать результаты подробнее — запишитесь на персональную консультацию со скидкой 500 руб. по промокоду VUZLINE500.
+Чтобы узнать подробности или записаться, пишите менеджеру в телеграм-аккауунт @vuzline_webinar.
+
+Удачи с поступлением!
+Команда Vuzline
+vuzline.ru
+        """
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+
+        # Прикрепляем Excel
+        attachment = MIMEBase("application", "octet-stream")
+        attachment.set_payload(buf.read())
+        encoders.encode_base64(attachment)
+        attachment.add_header(
+            "Content-Disposition",
+            "attachment",
+            filename="vuzline_результаты.xlsx"
+        )
+        msg.attach(attachment)
+
+        # Отправляем
+        with smtplib.SMTP_SSL("smtp.yandex.ru", 465) as server:
+            server.login(st.secrets["EMAIL_FROM"], st.secrets["EMAIL_PASSWORD"])
+            server.send_message(msg)
+
+        return True
+    except Exception as e:
+        st.error(f"Ошибка отправки письма: {e}")
+        return False
 def show_results(result, flow=1, paid=False):
     if len(result) == 0:
         st.warning("По вашему запросу ничего не найдено.")
@@ -412,18 +482,21 @@ def show_results(result, flow=1, paid=False):
 **Стоимость: 1 790 руб.**
         """)
         if st.button("💳 Оплатить и получить полную таблицу", type="primary", key="pay_btn"):
-            try:
-                return_url = "https://vuzline-2026.streamlit.app/?paid=true"
-                payment_url, payment_id = create_payment(
-                    amount=1790,
-                    description="Подбор вузов по ЕГЭ — полная таблица",
-                    return_url=return_url
-                )
-                st.session_state["payment_id"] = payment_id
-                st.session_state["payment_url"] = payment_url
-                st.rerun()
-            except Exception as e:
-                st.error(f"Ошибка при создании платежа: {e}")
+            if not st.session_state.get("user_email"):
+                st.error("Введите email для получения таблицы")
+            else:
+                try:
+                    return_url = "https://vuzline-2026.streamlit.app/?paid=true"
+                    payment_url, payment_id = create_payment(
+                        amount=1790,
+                        description="Подбор вузов по ЕГЭ — полная таблица",
+                        return_url=return_url
+                    )
+                    st.session_state["payment_id"] = payment_id
+                    st.session_state["payment_url"] = payment_url
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Ошибка при создании платежа: {e}")
     else:
         st.dataframe(result, use_container_width=True, hide_index=True)
         show_disclaimers()
@@ -453,7 +526,12 @@ def show_results(result, flow=1, paid=False):
     if flow == 2 and 'result_few' in dir() and len(result_few) > 0:
         with st.expander("📋 Вузы с 1-2 подходящими вариантами"):
             st.caption("В этих вузах мало подходящих специальностей под ваши предметы и баллы")
-            st.dataframe(result_few, use_container_width=True, hide_index=True)
+            if not paid:
+                preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
+                preview_few = result_few[[c for c in preview_cols if c in result_few.columns]].copy()
+                st.dataframe(preview_few, use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(result_few, use_container_width=True, hide_index=True)
 
 
 # ─── ИНТЕРФЕЙС ────────────────────────────────────────────────────────────
@@ -465,8 +543,24 @@ all_codes = get_all_codes(df)
 
 # Проверяем параметр оплаты из URL
 query_params = st.query_params
-if query_params.get("paid", "") == "true":
+if query_params.get("paid", "") == "true" and not st.session_state.get("email_sent"):
     st.session_state["paid"] = True
+    # Отправляем письмо если есть результаты и email
+    if "last_result" in st.session_state and "user_email" in st.session_state:
+        result_df = pd.DataFrame.from_dict(st.session_state["last_result"])
+        search_params = {
+            "Дата и время": datetime.now().strftime("%d.%m.%Y %H:%M"),
+            "Email": st.session_state["user_email"],
+            "Предметы и баллы": str(st.session_state.get("last_subjects", {})),
+            "Города": str(st.session_state.get("last_cities", [])),
+            "ГТО": st.session_state.get("last_gto", "Нет"),
+            "Аттестат": st.session_state.get("last_attestat", False),
+            "Балл за ДВИ": st.session_state.get("last_dvi", ""),
+            "Payment ID": st.session_state.get("payment_id", ""),
+        }
+        if send_email(st.session_state["user_email"], result_df, search_params):
+            st.session_state["email_sent"] = True
+            st.success("✅ Таблица отправлена на ваш email!")
 
 st.title("🎓 Подбор вузов по ЕГЭ")
 
@@ -535,6 +629,15 @@ dvi_score = st.number_input(
 )
 
 gto_val = gto if gto != "Нет" else None
+st.divider()
+st.subheader("Введите email для получения таблицы")
+user_email = st.text_input(
+    "Email *",
+    placeholder="example@mail.ru",
+    help="На этот адрес мы отправим полную таблицу после оплаты"
+)
+if user_email:
+    st.session_state["user_email"] = user_email
 
 st.divider()
 
@@ -564,8 +667,12 @@ if flow == "🔍 Подобрать варианты по моим ЕГЭ":
             else:
                 st.session_state["last_result"] = result.to_dict()
                 st.session_state["last_flow"] = 2
-                paid = st.session_state.get("paid", False)
-                show_results(result, flow=2, paid=paid)
+                st.session_state["last_subjects"] = subjects
+                st.session_state["last_cities"] = selected_cities
+                st.session_state["last_gto"] = gto_val
+                st.session_state["last_attestat"] = attestat
+                st.session_state["last_dvi"] = dvi_score
+                st.rerun()
 
 # ─── ФЛОУ 1 ───────────────────────────────────────────────────────────────
 else:
@@ -645,5 +752,15 @@ else:
             else:
                 st.session_state["last_result"] = result.to_dict()
                 st.session_state["last_flow"] = 1
-                paid = st.session_state.get("paid", False)
-                show_results(result, flow=1, paid=paid)
+                st.session_state["last_subjects"] = subjects
+                st.session_state["last_cities"] = selected_cities_flow1
+                st.session_state["last_gto"] = gto_val
+                st.session_state["last_attestat"] = attestat
+                st.session_state["last_dvi"] = dvi_score
+                st.rerun()
+# После rerun показываем результаты и кнопку оплаты
+if "last_result" in st.session_state and "last_flow" in st.session_state:
+    if "payment_url" not in st.session_state:
+        result = pd.DataFrame.from_dict(st.session_state["last_result"])
+        paid = st.session_state.get("paid", False)
+        show_results(result, flow=st.session_state["last_flow"], paid=paid)
