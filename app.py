@@ -360,24 +360,197 @@ def show_disclaimers():
         unsafe_allow_html=True
     )
 def send_email(to_email, result_df, search_params):
-    """Отправляем таблицу результатов на email"""
     try:
-        # Создаём Excel файл в памяти
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+
+        CHANCE_COLORS = {
+            "Уверенно": "D6EED2", "Реалистично": "D0E8F5", "Вероятно": "FFF0D6",
+            "Рискованно": "FAE0E0", "Маловероятно": "EBEBEB",
+            "Нет данных": "F5F5F5", "Нет оценки — не указан балл за ДВИ": "F5F5F5",
+        }
+        CHANCE_TEXT = {
+            "Уверенно": "1E6B14", "Реалистично": "0D5A8A", "Вероятно": "8A5A00",
+            "Рискованно": "8A1A1A", "Маловероятно": "555555",
+            "Нет данных": "888888", "Нет оценки — не указан балл за ДВИ": "888888",
+        }
+        HEADER_BG = "379FFC"
+        HEADER_FG = "FFFFFF"
+        ROW_ODD   = "FFFFFF"
+        ROW_EVEN  = "F4F7FB"
+        ACCENT    = "379FFC"
+        COL_W     = 90
+
+        dashed = Side(style='dashDot', color='8BB8E8')
+        thin_g = Side(style='thin', color='DDDDDD')
+        no_s   = Side(style=None)
+
+        def get_border(ci, bottom=True):
+            b = thin_g if bottom else no_s
+            l = dashed if ci == 6 else no_s
+            r = dashed if ci in [1, 6, 8] else no_s
+            return Border(bottom=b, left=l, right=r)
+
+        def calc_height(text, col_width=90, font_size=9, base_height=15):
+            if not text: return base_height
+            chars_per_line = int(col_width * 1.15)
+            lines = max(1, -(-len(str(text)) // chars_per_line))
+            return max(base_height, lines * (font_size * 1.8))
+
+        wb = Workbook()
+
+        # ── Лист 1: Важная информация ──
+        ws3 = wb.active
+        ws3.title = "Важная информация"
+        ws3.column_dimensions['A'].width = COL_W
+
+        rows_info = [
+            ('📋 Результаты вашего запроса — во вкладке "Результаты"', "title"),
+            ("Ниже — важная информация о том, как читать таблицу и расставлять приоритеты.", "subtitle"),
+            ("", "gap"),
+            ("О СЕРВИСЕ", "header"),
+            ("Данные актуальны на приёмную кампанию 2026 года.", "text"),
+            ("Результаты основаны на статистике прошлого года и носят рекомендательный характер.", "text"),
+            ("Таблица только для поступающих на общих основаниях на основном этапе.", "text"),
+            ("Квотники и олимпиадники — для вас нужна персональная консультация.", "text"),
+            ("", "gap"),
+            ("РАСШИФРОВКА ШАНСОВ", "header"),
+            ("Уверенно — ваш балл выше среднего на 10+. Это подстраховочный вариант на который вы точно пройдёте. Рек. приоритет: 3–5+", "D6EED2"),
+            ("Реалистично — ваш балл выше среднего. Хорошие шансы. Рек. приоритет: 2–3", "D0E8F5"),
+            ("Вероятно — ваш балл ниже среднего, но выше проходного на 5+. Рек. приоритет: 1–2", "FFF0D6"),
+            ("Рискованно — ваш балл близко к проходному (не более чем на 5 выше или 15 ниже). Ставьте приоритет 1 только если очень хочется и есть подстраховка.", "FAE0E0"),
+            ("Маловероятно — ваш балл ниже проходного на 15+. Шансы крайне малы.", "EBEBEB"),
+            ("Нет данных — новая специальность, статистики нет.", "F5F5F5"),
+            ("", "gap"),
+            ("ПРО ПРИОРИТЕТЫ", "header"),
+            ("В одном вузе можно выбрать не более 5 кодов специальностей, но количество профилей не ограничено — поэтому приоритетов тоже может быть больше 5.", "text"),
+            ("1–2 приоритет: амбициозные варианты.", "text"),
+            ("3–4 приоритет: реалистичные, стабильные.", "text"),
+            ("4+ приоритет: уверенное зачисление.", "text"),
+            ("", "gap"),
+            ("ВАЖНО: СОГЛАСИЕ НА ЗАЧИСЛЕНИЕ", "header"),
+            ("Зачисление не происходит без подачи согласия.", "text"),
+            ("Подать до 12:00 (мск) 5 августа в один из вузов — только один одновременно.", "text"),
+            ("", "gap"),
+            ("СРОКИ", "header"),
+            ("До 25 июля — подача документов в вузы.", "text"),
+            ("Срок для ДВИ короче — даты и формат уточняйте на сайте вуза.", "text"),
+            ("27 июля — публикация конкурсных списков.", "text"),
+            ("5 августа 12:00 (мск) — последний срок подачи согласия на зачисление.", "text"),
+            ("", "gap"),
+            ("ИНДИВИДУАЛЬНЫЕ ДОСТИЖЕНИЯ", "header"),
+            ("Если есть достижения не учтённые в таблице — прибавьте самостоятельно. Суммарно не более 10 баллов. Полный список на сайте вуза.", "text"),
+            ("", "gap"),
+            ("СЛЕДУЮЩИЙ ШАГ", "header"),
+            ("Отслеживайте позицию в конкурсных списках на сайтах вузов или на Госуслугах.", "text"),
+            ("Не бойтесь раздутых списков — не все абитуриенты в них ваши реальные конкуренты.", "text"),
+            ("", "gap"),
+            ("Данный сервис носит исключительно информационный характер и не является официальной консультацией. Результаты не гарантируют поступление. Сервис не несёт ответственности за решения принятые на основе предоставленной информации.", "legal"),
+            ("", "gap"),
+            ("Для записи на консультацию пишите в телеграм-аккаунт @vuzline_webinar\nВопросы и предложения по таблице: result@vuzline.ru", "contact"),
+        ]
+
+        for rn, (text, kind) in enumerate(rows_info, 1):
+            cell = ws3.cell(row=rn, column=1, value=text)
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+            if kind == "title":
+                cell.font = Font(name="Montserrat", size=16, bold=True, color=HEADER_BG)
+                ws3.row_dimensions[rn].height = 42
+            elif kind == "subtitle":
+                cell.font = Font(name="Montserrat", size=10, color="555555")
+                ws3.row_dimensions[rn].height = 22
+            elif kind == "gap":
+                ws3.row_dimensions[rn].height = 10
+            elif kind == "header":
+                cell.font = Font(name="Montserrat", size=10, bold=True, color=HEADER_BG)
+                cell.fill = PatternFill("solid", fgColor="EBF4FF")
+                ws3.row_dimensions[rn].height = 24
+            elif kind == "legal":
+                cell.font = Font(name="Montserrat", size=8, color="AAAAAA")
+                ws3.row_dimensions[rn].height = calc_height(text, COL_W, 8)
+            elif kind == "contact":
+                cell.font = Font(name="Montserrat", size=9, bold=True, color=ACCENT)
+                ws3.row_dimensions[rn].height = 36
+            elif len(kind) == 6:
+                cell.font = Font(name="Montserrat", size=9, color="1A1A1A")
+                cell.fill = PatternFill("solid", fgColor=kind)
+                ws3.row_dimensions[rn].height = calc_height(text, COL_W, 9)
+            else:
+                cell.font = Font(name="Montserrat", size=9, color="1A1A1A")
+                ws3.row_dimensions[rn].height = calc_height(text, COL_W, 9)
+
+        # ── Лист 2: Результаты ──
+        ws = wb.create_sheet("Результаты")
+        df_out = result_df.copy()
+        chance_label = {
+            "podstrahovka": "Уверенно", "realistic": "Реалистично",
+            "probable": "Вероятно", "risky": "Рискованно",
+            "unlikely": "Маловероятно", "new": "Нет данных",
+            "no_dvi_score": "Нет оценки — не указан балл за ДВИ",
+        }
+        if "Шансы" in df_out.columns:
+            df_out["Шансы"] = df_out["Шансы"].map(lambda x: chance_label.get(x, x))
+
+        cols = list(df_out.columns)
+        for ci, col_name in enumerate(cols, 1):
+            cell = ws.cell(row=1, column=ci, value=col_name)
+            cell.font = Font(bold=True, color=HEADER_FG, name="Montserrat", size=9)
+            cell.fill = PatternFill("solid", fgColor=HEADER_BG)
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = get_border(ci, bottom=False)
+        ws.row_dimensions[1].height = 32
+
+        for row_idx, row in df_out.iterrows():
+            er = row_idx + 2
+            bg = ROW_ODD if row_idx % 2 == 0 else ROW_EVEN
+            for ci, (col_name, value) in enumerate(row.items(), 1):
+                cell = ws.cell(row=er, column=ci, value=value)
+                cell.fill = PatternFill("solid", fgColor=bg)
+                cell.border = get_border(ci)
+                if ci in [1, 2, 3, 4, 5]:
+                    cell.font = Font(name="Montserrat", size=9, color="1A1A1A", bold=(ci == 1))
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=False)
+                elif ci == 6:
+                    cell.font = Font(name="Montserrat", size=9, color="1A1A1A", bold=True)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif ci == 12:
+                    c = CHANCE_COLORS.get(str(value), bg)
+                    t = CHANCE_TEXT.get(str(value), "1A1A1A")
+                    cell.fill = PatternFill("solid", fgColor=c)
+                    cell.font = Font(name="Montserrat", size=9, color=t, bold=True)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                elif ci == 13:
+                    cell.font = Font(name="Montserrat", size=9, color=ACCENT, bold=True)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.font = Font(name="Montserrat", size=9, color="1A1A1A")
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        col_widths = {1:14,2:18,3:22,4:32,5:30,6:7,7:13,8:13,9:13,10:10,11:13,12:18,13:11,14:9,15:9,16:9,17:9}
+        for ci, w in col_widths.items():
+            ws.column_dimensions[get_column_letter(ci)].width = w
+        ws.freeze_panes = "A2"
+
+        # ── Лист 3: Запрос ──
+        ws2 = wb.create_sheet("Запрос")
+        params_df = pd.DataFrame([search_params])
+        for ci, col_name in enumerate(params_df.columns, 1):
+            cell = ws2.cell(row=1, column=ci, value=col_name)
+            cell.font = Font(bold=True, color=HEADER_FG, name="Montserrat", size=9)
+            cell.fill = PatternFill("solid", fgColor=HEADER_BG)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        for ci, (col_name, value) in enumerate(params_df.iloc[0].items(), 1):
+            cell = ws2.cell(row=2, column=ci, value=value)
+            cell.font = Font(name="Montserrat", size=9)
+            cell.alignment = Alignment(wrap_text=True, vertical="center")
+            ws2.column_dimensions[get_column_letter(ci)].width = 28
+        ws2.row_dimensions[1].height = 28
+        ws2.row_dimensions[2].height = 40
+
+        # Сохраняем в буфер
         buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-            result_df.to_excel(writer, index=False, sheet_name="Результаты")
-            # Лист с параметрами запроса
-            params_df = pd.DataFrame([search_params])
-            params_df.to_excel(writer, index=False, sheet_name="Запрос")
-            workbook = writer.book
-            worksheet = writer.sheets["Результаты"]
-            num_fmt = workbook.add_format({"num_format": "0"})
-            for col_name in ["Мест", "Проходной балл", "Средний балл",
-                              "Ваш балл (ЕГЭ)", "Конкурсный балл",
-                              "ГТО золото", "ГТО серебро", "ГТО бронза", "Аттестат"]:
-                if col_name in result_df.columns:
-                    col_idx = result_df.columns.get_loc(col_name)
-                    worksheet.set_column(col_idx, col_idx, 12, num_fmt)
+        wb.save(buf)
         buf.seek(0)
 
         # Создаём письмо
@@ -391,12 +564,13 @@ def send_email(to_email, result_df, search_params):
 
 Ваша персональная таблица подбора вузов готова. Она прикреплена к этому письму.
 
-В таблице два листа:
+В таблице три листа:
+- Важная информация — прочитайте сначала!
 - Результаты — все подходящие специальности с оценкой шансов
 - Запрос — параметры вашего поиска
 
 Если у вас возникнут вопросы или вы хотите разобрать результаты подробнее — запишитесь на персональную консультацию со скидкой 500 руб. по промокоду VUZLINE500.
-Чтобы узнать подробности или записаться, пишите менеджеру в телеграм-аккауунт @vuzline_webinar.
+Для записи пишите в телеграм-аккаунт @vuzline_webinar.
 
 Удачи с поступлением!
 Команда Vuzline
@@ -404,18 +578,15 @@ vuzline.ru
         """
         msg.attach(MIMEText(body, "plain", "utf-8"))
 
-        # Прикрепляем Excel
         attachment = MIMEBase("application", "octet-stream")
         attachment.set_payload(buf.read())
         encoders.encode_base64(attachment)
         attachment.add_header(
-            "Content-Disposition",
-            "attachment",
+            "Content-Disposition", "attachment",
             filename="vuzline_результаты.xlsx"
         )
         msg.attach(attachment)
 
-        # Отправляем
         with smtplib.SMTP_SSL("smtp.yandex.ru", 465) as server:
             server.login(st.secrets["EMAIL_FROM"], st.secrets["EMAIL_PASSWORD"])
             server.send_message(msg)
