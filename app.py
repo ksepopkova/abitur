@@ -277,9 +277,12 @@ def count_slots(selected_codes):
         else:
             slots.add(code)
     return len(slots)
+# Глобальное хранилище платежей (живёт пока приложение запущено)
+if "payment_store" not in st.session_state:
+    st.session_state["payment_store"] = {}
+
 def save_payment_data(order_id, result_df, search_params, user_email, flow, payment_id=None):
-    data = {
-        "order_id": order_id,
+    st.session_state["payment_store"][order_id] = {
         "payment_id": payment_id,
         "user_email": user_email,
         "flow": flow,
@@ -287,13 +290,20 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         "result": result_df.to_dict(),
         "created_at": datetime.now().isoformat()
     }
-    filename = f"payment_{order_id}.json"
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+    # Также сохраняем в файл как резервную копию
+    try:
+        filename = f"payment_{order_id}.json"
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(st.session_state["payment_store"][order_id], f, ensure_ascii=False)
+    except:
+        pass
 
-def load_payment_data(payment_id):
-    """Загружаем данные по payment_id"""
-    filename = f"payment_{payment_id}.json"
+def load_payment_data(order_id):
+    # Сначала ищем в session_state
+    if order_id in st.session_state.get("payment_store", {}):
+        return st.session_state["payment_store"][order_id]
+    # Потом в файле
+    filename = f"payment_{order_id}.json"
     if os.path.exists(filename):
         with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
