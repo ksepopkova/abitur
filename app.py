@@ -516,11 +516,12 @@ def show_results(result, flow=1, paid=False):
                 st.error("Введите email для получения таблицы")
             else:
                 try:
-                    return_url = f"https://vuzline-2026.streamlit.app/?payment_id={payment_id}"
+                    # Сначала создаём платёж с базовым return_url
+                    base_return_url = "https://vuzline-2026.streamlit.app/"
                     payment_url, payment_id = create_payment(
                         amount=1790,
                         description="Подбор вузов по ЕГЭ — полная таблица",
-                        return_url=return_url
+                        return_url=base_return_url
                     )
                     # Сохраняем данные в файл
                     search_params = {
