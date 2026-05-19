@@ -1,3 +1,4 @@
+st.write("DEBUG URL params:", dict(st.query_params))
 import streamlit as st
 import pandas as pd
 import re
@@ -277,9 +278,9 @@ def count_slots(selected_codes):
         else:
             slots.add(code)
     return len(slots)
-def save_payment_data(payment_id, result_df, search_params, user_email, flow):
-    """Сохраняем данные поиска привязанные к payment_id"""
+def save_payment_data(order_id, result_df, search_params, user_email, flow, payment_id=None):
     data = {
+        "order_id": order_id,
         "payment_id": payment_id,
         "user_email": user_email,
         "flow": flow,
@@ -287,7 +288,7 @@ def save_payment_data(payment_id, result_df, search_params, user_email, flow):
         "result": result_df.to_dict(),
         "created_at": datetime.now().isoformat()
     }
-    filename = f"payment_{payment_id}.json"
+    filename = f"payment_{order_id}.json"
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
@@ -306,13 +307,15 @@ def check_payment_status(payment_id):
         return payment.status == "succeeded"
     except:
         return False
-def create_payment(amount, description, return_url):
+def create_payment(amount, description, return_url, order_id=None):
+    if order_id is None:
+        order_id = str(uuid.uuid4())
     payment = Payment.create({
         "amount": {"value": str(amount), "currency": "RUB"},
         "confirmation": {"type": "redirect", "return_url": return_url},
         "capture": True,
         "description": description,
-        "metadata": {"order_id": str(uuid.uuid4())}
+        "metadata": {"order_id": order_id}
     })
     return payment.confirmation.confirmation_url, payment.id
 
@@ -516,12 +519,14 @@ def show_results(result, flow=1, paid=False):
                 st.error("Введите email для получения таблицы")
             else:
                 try:
-                    # Сначала создаём платёж с базовым return_url
-                    base_return_url = "https://vuzline-2026.streamlit.app/"
+                    # Генерируем order_id заранее и передаём в return_url
+                    order_id = str(uuid.uuid4())
+                    return_url = f"https://vuzline-2026.streamlit.app/?order_id={order_id}"
                     payment_url, payment_id = create_payment(
                         amount=1790,
                         description="Подбор вузов по ЕГЭ — полная таблица",
-                        return_url=base_return_url
+                        return_url=return_url,
+                        order_id=order_id
                     )
                     # Сохраняем данные в файл
                     search_params = {
@@ -536,9 +541,10 @@ def show_results(result, flow=1, paid=False):
                     }
                     result_df = pd.DataFrame.from_dict(st.session_state["last_result"])
                     save_payment_data(
-                        payment_id, result_df, search_params,
+                        order_id, result_df, search_params,
                         st.session_state["user_email"],
-                        st.session_state.get("last_flow", 2)
+                        st.session_state.get("last_flow", 2),
+                        payment_id=payment_id
                     )
                     st.session_state["payment_id"] = payment_id
                     st.session_state["payment_url"] = payment_url
@@ -591,20 +597,19 @@ all_codes = get_all_codes(df)
 
 # Проверяем payment_id из URL и отправляем письмо
 query_params = st.query_params
-payment_id_from_url = query_params.get("payment_id", "")
+order_id_from_url = query_params.get("order_id", "")
 
-if payment_id_from_url and not st.session_state.get(f"sent_{payment_id_from_url}"):
-    if check_payment_status(payment_id_from_url):
-        data = load_payment_data(payment_id_from_url)
-        if data:
+if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
+    data = load_payment_data(order_id_from_url)
+    if data:
+        payment_id = data.get("payment_id", "")
+        if check_payment_status(payment_id):
             result_df = pd.DataFrame.from_dict(data["result"])
             if send_email(data["user_email"], result_df, data["search_params"]):
-                st.session_state[f"sent_{payment_id_from_url}"] = True
+                st.session_state[f"sent_{order_id_from_url}"] = True
                 st.success(f"✅ Таблица отправлена на {data['user_email']}!")
             else:
                 st.error("Ошибка отправки письма. Напишите нам и мы пришлём вручную.")
-        else:
-            st.warning("Данные платежа не найдены. Напишите нам.")
     else:
         st.info("Платёж обрабатывается... Обновите страницу через минуту.")
 
