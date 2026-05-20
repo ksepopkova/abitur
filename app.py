@@ -559,8 +559,9 @@ def send_email(to_email, result_df, search_params):
             cell.border = get_border(ci, bottom=False)
         ws.row_dimensions[1].height = 32
 
-        for row_idx, row in df_out.iterrows():
-            er = row_idx + 2
+        for row_idx, row in enumerate(df_out.itertuples(index=False), start=2):
+            er = row_idx
+            row = pd.Series(row._asdict())
             bg = ROW_ODD if row_idx % 2 == 0 else ROW_EVEN
             for ci, (col_name, value) in enumerate(row.items(), 1):
                 cell = ws.cell(row=er, column=ci, value=str(value) if value is not None else "")
