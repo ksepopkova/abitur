@@ -293,35 +293,30 @@ def get_sheets_client():
     return gspread.authorize(creds)
 
 def save_payment_data(order_id, result_df, search_params, user_email, flow, payment_id=None):
+    # Сохраняем в session_state
+    if "payment_store" not in st.session_state:
+        st.session_state["payment_store"] = {}
+    st.session_state["payment_store"][order_id] = {
+        "payment_id": payment_id,
+        "user_email": user_email,
+        "flow": flow,
+        "search_params": search_params,
+        "result": result_df.to_dict(),
+    }
+    # Сохраняем в Google Sheets только основные данные
     try:
         client = get_sheets_client()
         sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
-        import json as json_lib
         row = [
             order_id,
-            payment_id or "",
+            str(payment_id) if payment_id else "",
             user_email,
             str(flow),
-            json_lib.dumps(search_params, ensure_ascii=False),
-            json_lib.dumps(result_df.to_dict(), ensure_ascii=False),
             datetime.now().isoformat()
         ]
         sheet.append_row(row)
     except Exception as e:
         st.warning(f"Не удалось сохранить в Google Sheets: {e}")
-    # Резервно в файл
-    try:
-        data = {
-            "payment_id": payment_id,
-            "user_email": user_email,
-            "flow": flow,
-            "search_params": search_params,
-            "result": result_df.to_dict(),
-        }
-        with open(f"payment_{order_id}.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-    except:
-        pass
 
 def load_payment_data(order_id):
     # Сначала session_state
@@ -416,6 +411,16 @@ def show_disclaimers():
     )
 def send_email(to_email, result_df, search_params):
     try:
+        # Диагностика типов df
+        for col in result_df.columns:
+            for val in result_df[col]:
+                if not isinstance(val, str) and val is not None:
+                    st.warning(f"Не строка в колонке {col}: {type(val)} = {val}")
+                    break
+        # Диагностика search_params
+        for key, val in search_params.items():
+            if not isinstance(val, str) and val is not None:
+                st.warning(f"Не строка в search_params[{key}]: {type(val)} = {val}")
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
@@ -561,7 +566,7 @@ def send_email(to_email, result_df, search_params):
             er = row_idx + 2
             bg = ROW_ODD if row_idx % 2 == 0 else ROW_EVEN
             for ci, (col_name, value) in enumerate(row.items(), 1):
-                cell = ws.cell(row=er, column=ci, value=value)
+                cell = ws.cell(row=er, column=ci, value=str(value) if value is not None else "")
                 cell.fill = PatternFill("solid", fgColor=bg)
                 cell.border = get_border(ci)
                 if ci in [1, 2, 3, 4, 5]:
@@ -590,14 +595,14 @@ def send_email(to_email, result_df, search_params):
 
         # ── Лист 3: Запрос ──
         ws2 = wb.create_sheet("Запрос")
-        params_df = pd.DataFrame([search_params])
+        params_df = pd.DataFrame([{k: str(v) for k, v in search_params.items()}])
         for ci, col_name in enumerate(params_df.columns, 1):
             cell = ws2.cell(row=1, column=ci, value=col_name)
             cell.font = Font(bold=True, color=HEADER_FG, name="Montserrat", size=9)
             cell.fill = PatternFill("solid", fgColor=HEADER_BG)
             cell.alignment = Alignment(horizontal="center", vertical="center")
         for ci, (col_name, value) in enumerate(params_df.iloc[0].items(), 1):
-            cell = ws2.cell(row=2, column=ci, value=value)
+            cell = ws2.cell(row=2, column=ci, value=str(value) if value is not None else "")
             cell.font = Font(name="Montserrat", size=9)
             cell.alignment = Alignment(wrap_text=True, vertical="center")
             ws2.column_dimensions[get_column_letter(ci)].width = 28
@@ -638,18 +643,33 @@ vuzline.ru
         attachment.set_payload(buf.read())
         encoders.encode_base64(attachment)
         attachment.add_header(
-            "Content-Disposition", "attachment",
-            filename="vuzline_результаты.xlsx"
+            "Content-Disposition",
+            "attachment; filename=\"vuzline_results.xlsx\""
         )
         msg.attach(attachment)
 
-        with smtplib.SMTP_SSL("smtp.yandex.ru", 465) as server:
-            server.login(st.secrets["EMAIL_FROM"], st.secrets["EMAIL_PASSWORD"])
-            server.send_message(msg)
+        try:
+            with smtplib.SMTP_SSL("smtp.yandex.ru", 465) as server:
+                server.login(
+                    str(st.secrets["EMAIL_FROM"]),
+                    str(st.secrets["EMAIL_PASSWORD"])
+                )
+                server.sendmail(
+                    str(st.secrets["EMAIL_FROM"]),
+                    str(to_email),
+                    msg.as_string()
+                )
+        except Exception as smtp_err:
+            import traceback
+            st.error(f"SMTP ошибка: {smtp_err}")
+            st.code(traceback.format_exc())
+            raise
 
         return True
     except Exception as e:
+        import traceback
         st.error(f"Ошибка отправки письма: {e}")
+        st.code(traceback.format_exc())
         return False
 def show_results(result, flow=1, paid=False):
     if len(result) == 0:
@@ -763,7 +783,7 @@ def show_results(result, flow=1, paid=False):
                         "ГТО": str(st.session_state.get("last_gto", "Нет")),
                         "Аттестат": str(st.session_state.get("last_attestat", False)),
                         "Балл за ДВИ": str(st.session_state.get("last_dvi", "")),
-                        "Payment ID": payment_id,
+                        "Payment ID": str(payment_id),
                     }
                     result_df = pd.DataFrame.from_dict(st.session_state["last_result"])
                     save_payment_data(
@@ -831,6 +851,7 @@ if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
         payment_id = data.get("payment_id", "")
         if check_payment_status(payment_id):
             result_df = pd.DataFrame.from_dict(data["result"])
+            result_df = result_df.astype(str).replace('None', '').replace('nan', '')
             if send_email(data["user_email"], result_df, data["search_params"]):
                 st.session_state[f"sent_{order_id_from_url}"] = True
                 st.success(f"✅ Таблица отправлена на {data['user_email']}!")
