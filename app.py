@@ -346,18 +346,6 @@ def load_payment_data(order_id):
         st.warning(f"Не удалось загрузить из файла: {e}")
     return None
 
-    except Exception as e:
-        st.warning(f"Не удалось загрузить из Google Sheets: {e}")
-    # Потом файл
-    try:
-        filename = f"payment_{order_id}.json"
-        if os.path.exists(filename):
-            with open(filename, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except:
-        pass
-    return None
-
 def check_payment_status(payment_id):
     """Проверяем статус платежа через API ЮКассы"""
     try:
