@@ -297,12 +297,26 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
     if "payment_store" not in st.session_state:
         st.session_state["payment_store"] = {}
     st.session_state["payment_store"][order_id] = {
-        "payment_id": payment_id,
+        "payment_id": str(payment_id) if payment_id else "",
         "user_email": user_email,
         "flow": flow,
-        "search_params": search_params,
+        "search_params": {k: str(v) for k, v in search_params.items()},
         "result": result_df.to_dict(),
     }
+    # Сохраняем в /tmp (доступно на Streamlit Cloud)
+    try:
+        filename = f"/tmp/payment_{order_id}.json"
+        data = {
+            "payment_id": str(payment_id) if payment_id else "",
+            "user_email": user_email,
+            "flow": flow,
+            "search_params": {k: str(v) for k, v in search_params.items()},
+            "result": result_df.to_dict(),
+        }
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        st.warning(f"Не удалось сохранить в файл: {e}")
     # Сохраняем в Google Sheets только основные данные
     try:
         client = get_sheets_client()
@@ -322,21 +336,16 @@ def load_payment_data(order_id):
     # Сначала session_state
     if order_id in st.session_state.get("payment_store", {}):
         return st.session_state["payment_store"][order_id]
-    # Потом Google Sheets
+    # Потом /tmp файл
     try:
-        client = get_sheets_client()
-        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
-        records = sheet.get_all_values()
-        for row in records:
-            if row and row[0] == order_id:
-                import json as json_lib
-                return {
-                    "payment_id": row[1],
-                    "user_email": row[2],
-                    "flow": row[3],
-                    "search_params": json_lib.loads(row[4]),
-                    "result": json_lib.loads(row[5]),
-                }
+        filename = f"/tmp/payment_{order_id}.json"
+        if os.path.exists(filename):
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        st.warning(f"Не удалось загрузить из файла: {e}")
+    return None
+
     except Exception as e:
         st.warning(f"Не удалось загрузить из Google Sheets: {e}")
     # Потом файл
