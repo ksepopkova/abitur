@@ -408,16 +408,6 @@ def show_disclaimers():
     )
 def send_email(to_email, result_df, search_params):
     try:
-        # Диагностика типов df
-        for col in result_df.columns:
-            for val in result_df[col]:
-                if not isinstance(val, str) and val is not None:
-                    st.warning(f"Не строка в колонке {col}: {type(val)} = {val}")
-                    break
-        # Диагностика search_params
-        for key, val in search_params.items():
-            if not isinstance(val, str) and val is not None:
-                st.warning(f"Не строка в search_params[{key}]: {type(val)} = {val}")
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from openpyxl.utils import get_column_letter
