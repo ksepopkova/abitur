@@ -711,7 +711,8 @@ def show_results(result, flow=1, paid=False):
                     seen_codes.add(code_prefix)
                 result_main_rows.append(row)
         result_main = pd.DataFrame(result_main_rows).reset_index(drop=True)
-        result_main = result_main.drop(columns=["_chance_p"])
+        if "_chance_p" in result_main.columns:
+            result_main = result_main.drop(columns=["_chance_p"])
 
         result_few_rows = []
         for vuz in few_vuz_list:
@@ -725,7 +726,8 @@ def show_results(result, flow=1, paid=False):
                 result_few_rows.append(row)
         result_few = pd.DataFrame(result_few_rows).reset_index(drop=True) if result_few_rows else pd.DataFrame()
         if len(result_few) > 0:
-            result_few = result_few.drop(columns=["_chance_p"])
+            if "_chance_p" in result_few.columns:
+                result_few = result_few.drop(columns=["_chance_p"])
 
         result = result_main
         st.info(f"Показаны топ-{len(top_vuz)} вузов с наибольшим количеством подходящих специальностей")
