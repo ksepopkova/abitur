@@ -3,3 +3,4 @@
 .streamlit/
 __pycache__/
 payment_*.json
+~$*.xlsx
