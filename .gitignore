@@ -1,1 +1,5 @@
 .streamlit/secrets.toml
+.DS_Store
+.streamlit/
+__pycache__/
+payment_*.json
