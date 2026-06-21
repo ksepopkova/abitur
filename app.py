@@ -818,6 +818,7 @@ def show_results(result, flow=1, paid=False):
                 try:
                     # Генерируем order_id заранее и передаём в return_url
                     order_id = str(uuid.uuid4())
+                    st.session_state["pending_order_id"] = order_id
                     return_url = f"https://vuzline-2026.streamlit.app/?order_id={order_id}"
                     payment_url, payment_id = create_payment(
                         amount=1790,
@@ -925,11 +926,44 @@ st.info("""
 if "payment_url" in st.session_state:
     st.link_button("💳 Перейти к оплате (1 790 руб.)", st.session_state["payment_url"], type="primary")
     st.caption("После оплаты вернитесь на эту страницу — таблица откроется автоматически")
+
     if st.button("❌ Отменить и начать заново"):
         del st.session_state["payment_url"]
         if "payment_id" in st.session_state:
             del st.session_state["payment_id"]
+        if "poll_attempts" in st.session_state:
+            del st.session_state["poll_attempts"]
         st.rerun()
+
+    # ── Автоматическая проверка статуса оплаты (polling) ──
+    # Пока пользователь на этом экране, мы сами периодически спрашиваем
+    # ЮКассу, прошла ли оплата — это не заменяет проверку через return_url
+    # (она остаётся как страховка), а даёт мгновенный отклик без
+    # необходимости вручную нажимать "Вернуться на сайт".
+    payment_id = st.session_state.get("payment_id")
+    if payment_id:
+        attempts = st.session_state.get("poll_attempts", 0)
+        with st.spinner(f"Ожидаем подтверждение оплаты... (проверка №{attempts + 1})"):
+            if check_payment_status(payment_id):
+                order_id = st.session_state.get("pending_order_id")
+                data = load_payment_data(order_id) if order_id else None
+                already_sent = order_id and st.session_state.get(f"sent_{order_id}")
+                if data and not already_sent:
+                    result_df = pd.DataFrame.from_dict(data["result"])
+                    result_df = result_df.astype(str).replace('None', '').replace('nan', '')
+                    if send_email(data["user_email"], result_df, data["search_params"]):
+                        st.session_state[f"sent_{order_id}"] = True
+                if order_id:
+                    st.session_state["paid"] = True
+                del st.session_state["payment_url"]
+                if "poll_attempts" in st.session_state:
+                    del st.session_state["poll_attempts"]
+                st.rerun()
+            else:
+                st.session_state["poll_attempts"] = attempts + 1
+                import time
+                time.sleep(4)
+                st.rerun()
     st.stop()
 
 flow = st.radio(
