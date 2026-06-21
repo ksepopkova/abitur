@@ -936,35 +936,34 @@ if "payment_url" in st.session_state:
         st.rerun()
 
     # ── Автоматическая проверка статуса оплаты (polling) ──
-    # Запускаем проверку только после того, как пользователь подтвердил,
-    # что перешёл к оплате (галочка ниже) — это даёт время кликнуть по
-    # кнопке оплаты, не конкурируя с автоматическими перезагрузками страницы.
+    # Первый запуск проверки откладывается на 6 секунд после показа кнопки —
+    # это даёт пользователю время кликнуть "Перейти к оплате" и переключиться
+    # на новую вкладку до того, как страница начнёт перерисовываться.
+    import time
     payment_id = st.session_state.get("payment_id")
     if payment_id:
-        confirmed = st.checkbox("Я перешёл(а) на страницу оплаты", key="confirm_left_for_payment")
-        if confirmed:
-            attempts = st.session_state.get("poll_attempts", 0)
-            with st.spinner(f"Ожидаем подтверждение оплаты... (проверка №{attempts + 1})"):
-                if check_payment_status(payment_id):
-                    order_id = st.session_state.get("pending_order_id")
-                    data = load_payment_data(order_id) if order_id else None
-                    already_sent = order_id and st.session_state.get(f"sent_{order_id}")
-                    if data and not already_sent:
-                        result_df = pd.DataFrame.from_dict(data["result"])
-                        result_df = result_df.astype(str).replace('None', '').replace('nan', '')
-                        if send_email(data["user_email"], result_df, data["search_params"]):
-                            st.session_state[f"sent_{order_id}"] = True
-                    if order_id:
-                        st.session_state["paid"] = True
-                    del st.session_state["payment_url"]
-                    if "poll_attempts" in st.session_state:
-                        del st.session_state["poll_attempts"]
-                    st.rerun()
-                else:
-                    st.session_state["poll_attempts"] = attempts + 1
-                    import time
-                    time.sleep(4)
-                    st.rerun()
+        attempts = st.session_state.get("poll_attempts", 0)
+        delay = 6 if attempts == 0 else 4
+        with st.spinner(f"Ожидаем подтверждение оплаты... (проверка №{attempts + 1})"):
+            time.sleep(delay)
+            if check_payment_status(payment_id):
+                order_id = st.session_state.get("pending_order_id")
+                data = load_payment_data(order_id) if order_id else None
+                already_sent = order_id and st.session_state.get(f"sent_{order_id}")
+                if data and not already_sent:
+                    result_df = pd.DataFrame.from_dict(data["result"])
+                    result_df = result_df.astype(str).replace('None', '').replace('nan', '')
+                    if send_email(data["user_email"], result_df, data["search_params"]):
+                        st.session_state[f"sent_{order_id}"] = True
+                if order_id:
+                    st.session_state["paid"] = True
+                del st.session_state["payment_url"]
+                if "poll_attempts" in st.session_state:
+                    del st.session_state["poll_attempts"]
+                st.rerun()
+            else:
+                st.session_state["poll_attempts"] = attempts + 1
+                st.rerun()
     st.stop()
 
 flow = st.radio(
