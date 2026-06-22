@@ -371,7 +371,7 @@ def build_result_row(row, subjects, gto, attestat, dvi_score=None):
         "ГТО серебро":         to_num(row.iloc[33]),
         "ГТО бронза":          to_num(row.iloc[34]),
         "Аттестат":            to_num(row.iloc[35]),
-        "Стоимость обучения (Москва и СПб), тыс руб": to_num(row.iloc[37]) if clean_str(row.iloc[22]) not in ["Регионы"] and str(row.iloc[37]).strip() not in ("", "nan", "None") else "—",
+        "Стоимость обучения (Москва и СПб), тыс руб": clean_str(row.iloc[37]) if clean_str(row.iloc[37]) else "—",
     }
 
 def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attestat, dvi_score=None):
