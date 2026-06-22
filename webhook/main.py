@@ -343,7 +343,7 @@ vuzline.ru
     )
     msg.attach(attachment)
 
-   logger.info(f"Подключаемся к SMTP smtp.yandex.ru:587")
+    logger.info(f"Подключаемся к SMTP smtp.yandex.ru:587")
     with smtplib.SMTP("smtp.yandex.ru", 587, timeout=30) as server:
         server.ehlo()
         logger.info("ehlo выполнен")
