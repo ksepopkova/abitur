@@ -488,6 +488,11 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             "Мест", "Проходной балл", "Средний балл", "Ваш балл (ЕГЭ)", "Достижения",
             "Конкурсный балл", "Шансы", "Стоимость обучения (Москва и СПб), тыс руб"] if c in result_df.columns]
         result_df_slim = result_df[cols_to_keep].copy()
+        # Для флоу 2 оставляем только вузы с минимум 3 подходящими вариантами
+        if flow == 2 and "Вуз" in result_df_slim.columns:
+            vuz_counts = result_df_slim.groupby("Вуз")["Код и специальность"].count()
+            vuzы_ok = vuz_counts[vuz_counts >= 3].index
+            result_df_slim = result_df_slim[result_df_slim["Вуз"].isin(vuzы_ok)]
         # Сортируем для письма: сначала хорошие шансы в топовых вузах
         chance_priority = {
             "podstrahovka": 0, "realistic": 1, "probable": 2,
