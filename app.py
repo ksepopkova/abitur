@@ -483,11 +483,14 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         import base64
         client = get_sheets_client()
         sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        # Убираем технические колонки перед сохранением чтобы уложиться в лимит ячейки Google Sheets
+        cols_to_drop = [c for c in ["ГТО золото", "ГТО серебро", "ГТО бронза", "Аттестат", "Рек. приоритет"] if c in result_df.columns]
+        result_df_slim = result_df.drop(columns=cols_to_drop)
         full_data = {
             "user_email": user_email,
             "flow": flow,
             "search_params": {k: str(v) for k, v in search_params.items()},
-            "result": result_df.to_dict(),
+            "result": result_df_slim.to_dict(),
         }
         raw_json = json.dumps(full_data, ensure_ascii=False)
         compressed_b64 = base64.b64encode(gzip.compress(raw_json.encode("utf-8"))).decode("ascii")
