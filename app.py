@@ -483,11 +483,11 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         import base64
         client = get_sheets_client()
         sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
-        # Оставляем только нужные колонки для письма чтобы уложиться в лимит ячейки Google Sheets
+        # Оставляем только нужные колонки и топ-100 строк для письма чтобы уложиться в лимит ячейки Google Sheets
         cols_to_keep = [c for c in ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль",
             "Мест", "Проходной балл", "Средний балл", "Ваш балл (ЕГЭ)", "Достижения",
             "Конкурсный балл", "Шансы", "Стоимость обучения (Москва и СПб), тыс руб"] if c in result_df.columns]
-        result_df_slim = result_df[cols_to_keep]
+        result_df_slim = result_df[cols_to_keep].head(100)
         full_data = {
             "user_email": user_email,
             "flow": flow,
