@@ -234,7 +234,7 @@ def build_excel(result_df, search_params):
         "no_dvi_score": "Нет оценки — не указан балл за ДВИ",
     }
     if "Шансы" in df_out.columns:
-        df_out["Шансы"] = df_out["Шансы"].map(lambda x: chance_label.get(x, x))
+        df_out.loc[:, "Шансы"] = df_out["Шансы"].map(lambda x: chance_label.get(x, x))
 
     cols = list(df_out.columns)
     for ci, col_name in enumerate(cols, 1):
@@ -343,11 +343,16 @@ vuzline.ru
     )
     msg.attach(attachment)
 
-    with smtplib.SMTP("smtp.yandex.ru", 587) as server:
+   logger.info(f"Подключаемся к SMTP smtp.yandex.ru:587")
+    with smtplib.SMTP("smtp.yandex.ru", 587, timeout=30) as server:
         server.ehlo()
+        logger.info("ehlo выполнен")
         server.starttls()
+        logger.info("starttls выполнен")
         server.login(EMAIL_FROM, EMAIL_PASSWORD)
+        logger.info("login выполнен")
         server.sendmail(EMAIL_FROM, to_email, msg.as_string())
+        logger.info("sendmail выполнен")
 
 
 # ── Эндпоинты ──
