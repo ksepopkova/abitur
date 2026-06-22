@@ -355,7 +355,7 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         "search_params": {k: str(v) for k, v in search_params.items()},
         "result": result_df.to_dict(),
     }
-    # Сохраняем в /tmp (доступно на Streamlit Cloud)
+    # Сохраняем в /tmp (доступно на Streamlit Cloud, страховка для return_url-флоу)
     try:
         filename = f"/tmp/payment_{order_id}.json"
         data = {
@@ -369,21 +369,57 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:
         st.warning(f"Не удалось сохранить в файл: {e}")
-    # Сохраняем в Google Sheets только основные данные
+    # Сохраняем в Google Sheets — включая полный JSON с результатами (сжатый),
+    # чтобы внешний webhook-сервис (Render) тоже мог прочитать данные
+    # и отправить письмо независимо от Streamlit-приложения.
     try:
+        import gzip
+        import base64
         client = get_sheets_client()
         sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        full_data = {
+            "user_email": user_email,
+            "flow": flow,
+            "search_params": {k: str(v) for k, v in search_params.items()},
+            "result": result_df.to_dict(),
+        }
+        raw_json = json.dumps(full_data, ensure_ascii=False)
+        compressed_b64 = base64.b64encode(gzip.compress(raw_json.encode("utf-8"))).decode("ascii")
         row = [
             order_id,
             str(payment_id) if payment_id else "",
             user_email,
             str(flow),
-            datetime.now().isoformat()
+            datetime.now().isoformat(),
+            "",  # статус отправки письма — заполняется webhook-сервисом ("sent")
+            compressed_b64,
         ]
         sheet.append_row(row)
     except Exception as e:
         st.warning(f"Не удалось сохранить в Google Sheets: {e}")
+def get_email_sent_status(order_id):
+    """Проверяет в Google Sheets, было ли уже отправлено письмо для этого order_id"""
+    try:
+        client = get_sheets_client()
+        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        cell = sheet.find(order_id, in_column=1)
+        if cell:
+            status = sheet.cell(cell.row, 6).value  # столбец F
+            return status == "sent"
+    except Exception:
+        pass
+    return False
 
+def mark_email_sent(order_id):
+    """Отмечает в Google Sheets, что письмо отправлено"""
+    try:
+        client = get_sheets_client()
+        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        cell = sheet.find(order_id, in_column=1)
+        if cell:
+            sheet.update_cell(cell.row, 6, "sent")  # столбец F
+    except Exception:
+        pass
 def load_payment_data(order_id):
     # Сначала session_state
     if order_id in st.session_state.get("payment_store", {}):
@@ -898,19 +934,25 @@ query_params = st.query_params
 order_id_from_url = query_params.get("order_id", "")
 
 if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
-    data = load_payment_data(order_id_from_url)
-    if data:
-        payment_id = data.get("payment_id", "")
-        if check_payment_status(payment_id):
-            result_df = pd.DataFrame.from_dict(data["result"])
-            result_df = result_df.astype(str).replace('None', '').replace('nan', '')
-            if send_email(data["user_email"], result_df, data["search_params"]):
-                st.session_state[f"sent_{order_id_from_url}"] = True
-                st.success(f"✅ Таблица отправлена на {data['user_email']}!")
-            else:
-                st.error("Ошибка отправки письма. Напишите нам на result@vuzline.ru и мы пришлём таблицу вручную.")
+    if get_email_sent_status(order_id_from_url):
+        # Письмо уже отправлено вебхуком — просто сообщаем пользователю
+        st.session_state[f"sent_{order_id_from_url}"] = True
+        st.success("✅ Таблица уже отправлена вам на почту!")
     else:
-        st.info("Платёж обрабатывается... Обновите страницу через минуту.")
+        data = load_payment_data(order_id_from_url)
+        if data:
+            payment_id = data.get("payment_id", "")
+            if check_payment_status(payment_id):
+                result_df = pd.DataFrame.from_dict(data["result"])
+                result_df = result_df.astype(str).replace('None', '').replace('nan', '')
+                if send_email(data["user_email"], result_df, data["search_params"]):
+                    st.session_state[f"sent_{order_id_from_url}"] = True
+                    mark_email_sent(order_id_from_url)
+                    st.success(f"✅ Таблица отправлена на {data['user_email']}!")
+                else:
+                    st.error("Ошибка отправки письма. Напишите нам на result@vuzline.ru и мы пришлём таблицу вручную.")
+        else:
+            st.info("Платёж обрабатывается... Обновите страницу через минуту.")
 
 st.title("🎓 Подбор вузов по ЕГЭ")
 
@@ -925,45 +967,13 @@ st.info("""
 # Если есть payment_url — показываем кнопку перехода к оплате
 if "payment_url" in st.session_state:
     st.link_button("💳 Перейти к оплате (1 790 руб.)", st.session_state["payment_url"], type="primary")
-    st.caption("После оплаты вернитесь на эту страницу — таблица откроется автоматически")
+    st.caption("После оплаты таблица придёт на почту автоматически в течение пары минут. Также вы можете вернуться на эту страницу, чтобы открыть её здесь.")
 
     if st.button("❌ Отменить и начать заново"):
         del st.session_state["payment_url"]
         if "payment_id" in st.session_state:
             del st.session_state["payment_id"]
-        if "poll_attempts" in st.session_state:
-            del st.session_state["poll_attempts"]
         st.rerun()
-
-    # ── Автоматическая проверка статуса оплаты (polling) ──
-    # Первый запуск проверки откладывается на 6 секунд после показа кнопки —
-    # это даёт пользователю время кликнуть "Перейти к оплате" и переключиться
-    # на новую вкладку до того, как страница начнёт перерисовываться.
-    import time
-    payment_id = st.session_state.get("payment_id")
-    if payment_id:
-        attempts = st.session_state.get("poll_attempts", 0)
-        delay = 6 if attempts == 0 else 4
-        with st.spinner(f"Ожидаем подтверждение оплаты... (проверка №{attempts + 1})"):
-            time.sleep(delay)
-            if check_payment_status(payment_id):
-                order_id = st.session_state.get("pending_order_id")
-                data = load_payment_data(order_id) if order_id else None
-                already_sent = order_id and st.session_state.get(f"sent_{order_id}")
-                if data and not already_sent:
-                    result_df = pd.DataFrame.from_dict(data["result"])
-                    result_df = result_df.astype(str).replace('None', '').replace('nan', '')
-                    if send_email(data["user_email"], result_df, data["search_params"]):
-                        st.session_state[f"sent_{order_id}"] = True
-                if order_id:
-                    st.session_state["paid"] = True
-                del st.session_state["payment_url"]
-                if "poll_attempts" in st.session_state:
-                    del st.session_state["poll_attempts"]
-                st.rerun()
-            else:
-                st.session_state["poll_attempts"] = attempts + 1
-                st.rerun()
     st.stop()
 
 flow = st.radio(
