@@ -504,7 +504,9 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         next_row = len(all_values) + 1
         sheet.update(f"A{next_row}", [row], value_input_option="RAW")
     except Exception as e:
+        import traceback
         st.warning(f"Не удалось сохранить в Google Sheets: {e}")
+        st.warning(traceback.format_exc())
 def get_email_sent_status(order_id):
     """Проверяет в Google Sheets, было ли уже отправлено письмо для этого order_id"""
     try:
