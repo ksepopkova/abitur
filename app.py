@@ -493,7 +493,9 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             vuz_counts = result_df_slim.groupby("Вуз")["Код и специальность"].count()
             vuzы_ok = vuz_counts[vuz_counts >= 3].index
             result_df_slim = result_df_slim[result_df_slim["Вуз"].isin(vuzы_ok)]
-        # Сортируем для письма: сначала хорошие шансы в топовых вузах
+        # Отбор топ-100 для письма в два этапа:
+        # 1) выбираем КАКИЕ 100 строк попадут — по полезности (лучшие шансы в топовых вузах)
+        # 2) пересортируем эти 100 строк по Город+Вуз+шансы, чтобы вузы шли подряд
         chance_priority = {
             "podstrahovka": 0, "realistic": 1, "probable": 2,
             "risky": 3, "new": 4, "quota_bvi": 5,
@@ -502,8 +504,12 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         if "Шансы" in result_df_slim.columns and "Вуз" in result_df_slim.columns:
             result_df_slim["_chance_sort"] = result_df_slim["Шансы"].map(lambda x: chance_priority.get(x, 9))
             result_df_slim["_rating_sort"] = result_df_slim["Вуз"].map(lambda x: get_vuz_rating(x))
-            result_df_slim = result_df_slim.sort_values(["_chance_sort", "_rating_sort"]).drop(columns=["_chance_sort", "_rating_sort"])
-        result_df_slim = result_df_slim.head(100)
+            # Этап 1: отбираем лучшие 100 по полезности
+            result_df_slim = result_df_slim.sort_values(["_chance_sort", "_rating_sort"]).head(100)
+            # Этап 2: пересортируем отобранные для отображения — вузы подряд, внутри по шансам
+            result_df_slim = result_df_slim.sort_values(["Город", "Вуз", "_chance_sort"]).drop(columns=["_chance_sort", "_rating_sort"])
+        else:
+            result_df_slim = result_df_slim.head(100)
         full_data = {
             "user_email": user_email,
             "flow": flow,
@@ -894,10 +900,7 @@ def show_results(result, flow=1, paid=False):
     st.success(f"Найдено {len(result)} специальностей")
     result = result.copy()
     result["chance_order"] = result["Шансы"].map(CHANCE_ORDER)
-    st.write("DEBUG до сортировки:", result[["Город", "Вуз"]].head(8).values.tolist())
-    st.write("DEBUG chance_order NaN:", result["chance_order"].isna().sum())
     result = result.sort_values(["Город", "Вуз", "chance_order"]).drop("chance_order", axis=1)
-    st.write("DEBUG после сортировки:", result[["Город", "Вуз"]].head(8).values.tolist())
     result["Шансы"] = result["Шансы"].map(CHANCE_LABEL)
 
     if flow == 1:
