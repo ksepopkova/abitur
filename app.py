@@ -394,7 +394,9 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             "",  # статус отправки письма — заполняется webhook-сервисом ("sent")
             compressed_b64,
         ]
-        sheet.append_row(row)
+        import streamlit as st
+        st.write("DEBUG:", row[0], "|", len(row))
+        sheet.append_row(row, value_input_option="RAW")
     except Exception as e:
         st.warning(f"Не удалось сохранить в Google Sheets: {e}")
 def get_email_sent_status(order_id):
