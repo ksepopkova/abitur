@@ -894,7 +894,10 @@ def show_results(result, flow=1, paid=False):
     st.success(f"Найдено {len(result)} специальностей")
     result = result.copy()
     result["chance_order"] = result["Шансы"].map(CHANCE_ORDER)
+    st.write("DEBUG до сортировки:", result[["Город", "Вуз"]].head(8).values.tolist())
+    st.write("DEBUG chance_order NaN:", result["chance_order"].isna().sum())
     result = result.sort_values(["Город", "Вуз", "chance_order"]).drop("chance_order", axis=1)
+    st.write("DEBUG после сортировки:", result[["Город", "Вуз"]].head(8).values.tolist())
     result["Шансы"] = result["Шансы"].map(CHANCE_LABEL)
 
     if flow == 1:
