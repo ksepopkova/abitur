@@ -399,18 +399,25 @@ async def yookassa_webhook(request: Request):
         logger.warning(f"Данные для order_id={order_id} не найдены в Google Sheets")
         return {"status": "data_not_found"}
 
+    logger.info(f"Данные найдены, статус: '{record['status']}', email: {record['user_email']}")
+
     if record["status"] == "sent":
         logger.info(f"Письмо для order_id={order_id} уже было отправлено ранее")
         return {"status": "already_sent"}
 
     # Формируем и отправляем письмо
     try:
+        logger.info(f"Загружены данные для order_id={order_id}, email={record['user_email']}")
         result_df = pd.DataFrame.from_dict(record["result"])
         result_df = result_df.astype(str).replace('None', '').replace('nan', '')
+        logger.info(f"DataFrame сформирован, строк: {len(result_df)}")
         send_result_email(record["user_email"], result_df, record["search_params"])
-        mark_sent(order_id, record["row_num"])
         logger.info(f"Письмо успешно отправлено на {record['user_email']} (order_id={order_id})")
+        mark_sent(order_id, record["row_num"])
+        logger.info(f"Статус 'sent' записан в Google Sheets")
         return {"status": "sent"}
     except Exception as e:
+        import traceback
         logger.error(f"Ошибка отправки письма: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
