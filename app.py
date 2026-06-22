@@ -500,7 +500,8 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             "",  # статус отправки письма — заполняется webhook-сервисом ("sent")
             compressed_b64,
         ]
-        next_row = len(sheet.col_values(1)) + 1
+        all_values = sheet.get_all_values()
+        next_row = len(all_values) + 1
         sheet.update(f"A{next_row}", [row], value_input_option="RAW")
     except Exception as e:
         st.warning(f"Не удалось сохранить в Google Sheets: {e}")
