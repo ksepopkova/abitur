@@ -343,7 +343,9 @@ vuzline.ru
     )
     msg.attach(attachment)
 
-    with smtplib.SMTP_SSL("smtp.yandex.ru", 465) as server:
+    with smtplib.SMTP("smtp.yandex.ru", 587) as server:
+        server.ehlo()
+        server.starttls()
         server.login(EMAIL_FROM, EMAIL_PASSWORD)
         server.sendmail(EMAIL_FROM, to_email, msg.as_string())
 
