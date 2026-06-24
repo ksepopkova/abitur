@@ -525,9 +525,6 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             vuz_counts = result_df_slim.groupby("Вуз")["Код и специальность"].count()
             vuzы_ok = vuz_counts[vuz_counts >= 3].index
             result_df_slim = result_df_slim[result_df_slim["Вуз"].isin(vuzы_ok)]
-        # Отбор топ-100 для письма в два этапа:
-        # 1) выбираем КАКИЕ 100 строк попадут — по полезности (лучшие шансы в топовых вузах)
-        # 2) пересортируем эти 100 строк по Город+Вуз+шансы, чтобы вузы шли подряд
         chance_priority = {
             "podstrahovka": 0, "realistic": 1, "probable": 2,
             "risky": 3, "new": 4, "quota_bvi": 5,
@@ -536,12 +533,39 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         if "Шансы" in result_df_slim.columns and "Вуз" in result_df_slim.columns:
             result_df_slim["_chance_sort"] = result_df_slim["Шансы"].map(lambda x: chance_priority.get(x, 9))
             result_df_slim["_rating_sort"] = result_df_slim["Вуз"].map(lambda x: get_vuz_rating(x))
-            # Этап 1: отбираем лучшие 100 по полезности
-            result_df_slim = result_df_slim.sort_values(["_chance_sort", "_rating_sort"]).head(100)
-            # Этап 2: пересортируем отобранные для отображения — вузы подряд, внутри по шансам
-            result_df_slim = result_df_slim.sort_values(["Город", "Вуз", "_chance_sort"]).drop(columns=["_chance_sort", "_rating_sort"])
+            if flow == 2:
+                # Флоу 2: зеркалим логику экрана — топ-7 вузов с ≥3 хорошими вариантами
+                good_zones_raw = {"podstrahovka", "realistic", "probable"}
+                good_rows = result_df_slim[result_df_slim["Шансы"].isin(good_zones_raw)]
+                vuz_good_count = good_rows.groupby("Вуз").size()
+                main_vuz = vuz_good_count[vuz_good_count >= 3]
+                # Сортируем: сначала рейтинговые с ≥4 вариантами, потом остальные
+                rated = sorted(
+                    [v for v in main_vuz.index if get_vuz_rating(v) < 999 and main_vuz[v] >= 4],
+                    key=lambda v: get_vuz_rating(v)
+                )
+                unrated = [v for v in main_vuz.index if v not in rated]
+                top_vuz = (rated + unrated)[:7]
+                # Для каждого вуза берём до 5 уникальных кодов
+                rows_out = []
+                for vuz in top_vuz:
+                    vuz_df = result_df_slim[result_df_slim["Вуз"] == vuz].copy()
+                    vuz_df = vuz_df.sort_values("_chance_sort")
+                    seen_codes = set()
+                    for _, row in vuz_df.iterrows():
+                        code_prefix = str(row["Код и специальность"]).split(" ")[0][:5]
+                        if code_prefix not in seen_codes:
+                            if len(seen_codes) >= 5:
+                                continue
+                            seen_codes.add(code_prefix)
+                        rows_out.append(row)
+                result_df_slim = pd.DataFrame(rows_out).reset_index(drop=True)
+                result_df_slim = result_df_slim.sort_values(["Город", "Вуз", "_chance_sort"]).drop(columns=["_chance_sort", "_rating_sort"])
+            else:
+                # Флоу 1: лимита нет — пользователь сам выбрал ≤5 вузов
+                result_df_slim = result_df_slim.sort_values(["Город", "Вуз", "_chance_sort"]).drop(columns=["_chance_sort", "_rating_sort"])
         else:
-            result_df_slim = result_df_slim.head(100)
+            pass  # оставляем result_df_slim как есть
         full_data = {
             "user_email": user_email,
             "flow": flow,
