@@ -389,6 +389,40 @@ def build_result_row(row, subjects, gto, attestat, dvi_score=None):
         "Стоимость обучения (Москва и СПб), тыс руб": clean_str(row.iloc[37]) if clean_str(row.iloc[37]) else "—",
     }
 
+def expand_code_set(selected_codes, df):
+    """Расширяет набор кодов с учётом трёхуровневой структуры Минобрнауки:
+    ХХ.00.00 = УГСН (верхний уровень)
+    ХХ.ХХ.00 = групповой уровень
+    ХХ.ХХ.ХХ = конкретная специальность
+    """
+    all_db_codes = set(df.iloc[:, 25].astype(str).str.strip().tolist())
+    expanded = set(selected_codes)
+    for code in selected_codes:
+        num_part = code.split(' ')[0]
+        parts = num_part.split('.')
+        if len(parts) != 3:
+            continue
+        a, b, c = parts[0], parts[1], parts[2]
+        if b == '00' and c == '00':
+            # ХХ.00.00 → добавляем всё что начинается с ХХ.
+            for db_code in all_db_codes:
+                if db_code.split(' ')[0].startswith(a + '.'):
+                    expanded.add(db_code)
+        elif c == '00':
+            # ХХ.ХХ.00 → добавляем все ХХ.ХХ.хх + родительский ХХ.00.00
+            prefix = a + '.' + b
+            for db_code in all_db_codes:
+                db_num = db_code.split(' ')[0]
+                if db_num.startswith(prefix + '.') or db_num == a + '.00.00':
+                    expanded.add(db_code)
+        else:
+            # ХХ.ХХ.ХХ → добавляем родительские ХХ.ХХ.00 и ХХ.00.00
+            for db_code in all_db_codes:
+                db_num = db_code.split(' ')[0]
+                if db_num == a + '.' + b + '.00' or db_num == a + '.00.00':
+                    expanded.add(db_code)
+    return expanded
+
 def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attestat, dvi_score=None):
     results = []
     for _, row in df.iterrows():
@@ -402,24 +436,7 @@ def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attesta
     return pd.DataFrame(results)
 
 def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat, selected_cities=None, dvi_score=None):
-    expanded_codes = set(selected_codes)
-    for code in selected_codes:
-        parts = code.split(' ')[0]
-        if len(parts) >= 7:
-            prefix = parts[:5]
-            suffix = parts[5:]
-            if suffix == '.00':
-                for _, row in df.iterrows():
-                    if clean_str(row.iloc[23]) not in selected_vuz: continue
-                    row_code = clean_str(row.iloc[25])
-                    if row_code.split(' ')[0].startswith(prefix):
-                        expanded_codes.add(row_code)
-            else:
-                for _, row in df.iterrows():
-                    if clean_str(row.iloc[23]) not in selected_vuz: continue
-                    row_code = clean_str(row.iloc[25])
-                    if row_code.split(' ')[0] == prefix + '.00':
-                        expanded_codes.add(row_code)
+    expanded_codes = expand_code_set(selected_codes, df)
     results = []
     for _, row in df.iterrows():
         city_raw = str(row.iloc[22]).strip()
@@ -1281,12 +1298,13 @@ else:
             vuz_options.extend(get_vuz_by_city(df, city_group))
         vuz_options = sorted(set(vuz_options))
         if selected_codes:
+            expanded_for_ui = expand_code_set(selected_codes, df)
             filtered_vuz = set()
             for _, row in df.iterrows():
                 city_raw = str(row.iloc[22]).strip()
                 if get_city_group(city_raw) not in selected_cities_flow1: continue
                 code = clean_str(row.iloc[25])
-                if code in selected_codes:
+                if code in expanded_for_ui:
                     vuz = clean_str(row.iloc[23])
                     if vuz: filtered_vuz.add(vuz)
             vuz_options = sorted(filtered_vuz)
