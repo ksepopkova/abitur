@@ -186,17 +186,32 @@ def check_row(row, subjects):
                    for s, c in vyb_required): return None
     return "with_dvi" if dvi_required else "no_dvi"
 
-def get_chance(student_score, pb, sb):
+def is_valid_score(v):
+    """True если значение — число больше 1 (не пустое, не прочерк, не 0 или 1)"""
     try:
+        return float(v) > 1
+    except:
+        return False
+
+def get_chance(student_score, pb, sb):
+    pb_ok = is_valid_score(pb)
+    sb_ok = is_valid_score(sb)
+    if not pb_ok and not sb_ok:
+        return "new"
+    if pb_ok and sb_ok:
         pb_f, sb_f = float(pb), float(sb)
-        if pb_f <= 1 and sb_f <= 1: return "new"
         if student_score >= sb_f + 10: return "podstrahovka"
         if student_score >= sb_f: return "realistic"
         if student_score > pb_f + 5: return "probable"
         if student_score >= pb_f - 15: return "risky"
         return "unlikely"
-    except:
-        return "new"
+    # Только ПБ доступен — СБ отсутствует (часть региональных вузов)
+    pb_f = float(pb)
+    if student_score >= pb_f + 25: return "podstrahovka"
+    if student_score >= pb_f + 10: return "realistic"
+    if student_score > pb_f + 5: return "probable"
+    if student_score >= pb_f - 15: return "risky"
+    return "unlikely"
 VUZ_RATING = {
     "МГУ им. Ломоносова": 1,
     "МГТУ им. Баумана": 2,
@@ -603,6 +618,8 @@ def show_disclaimers():
 - ◾ **Общего конкурса не было** — в прошлом году зачисление на основном этапе не проводилось, были зачислены только абитуриенты по квотам и БВИ (олимпиадники)
 - ⬜ **Нет данных** — новая специальность, статистики нет. Ставьте приоритет 1 только если очень хочется и есть варианты с уверенным поступлением
 
+> 📊 **Про точность оценки шансов:** для части региональных вузов средний балл зачисленных недоступен — есть только проходной. В таких строках оценка шансов сделана только на основе проходного балла и может быть менее точной, чем для вузов где есть оба показателя.
+
 **Про приоритеты:**
 В одном вузе можно выбрать не более 5 кодов специальностей, но количество профилей не ограничено — поэтому приоритетов может быть больше пяти.
 
@@ -893,6 +910,7 @@ vuzline.ru
         st.code(traceback.format_exc())
         return False
 def show_results(result, flow=1, paid=False):
+    result_few = pd.DataFrame()
     if len(result) == 0:
         st.warning("По вашему запросу ничего не найдено.")
         return
@@ -902,6 +920,14 @@ def show_results(result, flow=1, paid=False):
     result["chance_order"] = result["Шансы"].map(CHANCE_ORDER)
     result = result.sort_values(["Город", "Вуз", "chance_order"]).drop("chance_order", axis=1)
     result["Шансы"] = result["Шансы"].map(CHANCE_LABEL)
+
+    # Предупреждение когда много вариантов но шансы в основном плохие
+    good_statuses_set = {"🟢 Уверенно", "🔵 Реалистично", "🟡 Вероятно"}
+    good_count = result["Шансы"].isin(good_statuses_set).sum()
+    if len(result) >= 10 and good_count == 0:
+        st.warning("⚠️ Среди найденных вариантов нет специальностей с хорошими шансами — все результаты относятся к категориям «Рискованно», «Маловероятно» или «Нет данных». Рекомендуем снизить планку или расширить список вузов.")
+    elif len(result) >= 10 and good_count / len(result) < 0.15:
+        st.warning(f"⚠️ Среди найденных вариантов только {good_count} с хорошими шансами (Вероятно, Реалистично, Уверенно). Большинство — «Рискованно» или «Маловероятно». Рекомендуем добавить подстраховочные варианты.")
 
     if flow == 1:
         vuz_counts = result.groupby("Вуз")["Код и специальность"].nunique()
@@ -962,7 +988,7 @@ def show_results(result, flow=1, paid=False):
 
         result_few_rows = []
         for vuz in few_vuz_list:
-            vuz_df = result[result["Вуз"] == vuz].copy()
+            vuz_df = result[(result["Вуз"] == vuz) & (result["Шансы"].isin(good_zones))].copy()
             seen_codes = set()
             for _, row in vuz_df.iterrows():
                 code_prefix = row["Код и специальность"].split(" ")[0][:5]
@@ -994,7 +1020,7 @@ def show_results(result, flow=1, paid=False):
 - Баллы за индивидуальные достижения
 - Возможность скачать таблицу в Excel
 
-**Стоимость: 1 790 руб.**
+**Стоимость: 2 490 руб.**
         """)
         if st.button("💳 Оплатить и получить полную таблицу", type="primary", key="pay_btn"):
             if not st.session_state.get("user_email"):
@@ -1006,7 +1032,7 @@ def show_results(result, flow=1, paid=False):
                     st.session_state["pending_order_id"] = order_id
                     return_url = f"https://vuzline-2026.streamlit.app/?order_id={order_id}"
                     payment_url, payment_id = create_payment(
-                        amount=1790,
+                        amount=2490,
                         description="Подбор вузов по ЕГЭ — полная таблица",
                         return_url=return_url,
                         order_id=order_id
@@ -1115,7 +1141,7 @@ st.info("""
 
 # Если есть payment_url — показываем кнопку перехода к оплате
 if "payment_url" in st.session_state:
-    st.link_button("💳 Перейти к оплате (1 790 руб.)", st.session_state["payment_url"], type="primary")
+    st.link_button("💳 Перейти к оплате (2 490 руб.)", st.session_state["payment_url"], type="primary")
     st.caption("После оплаты таблица придёт на почту автоматически в течение пары минут. Также вы можете вернуться на эту страницу, чтобы открыть её здесь.")
 
     if st.button("❌ Отменить и начать заново"):
@@ -1248,13 +1274,6 @@ else:
         "Коды специальностей *", available_codes,
         help="Начните вводить название или код для поиска"
     )
-    if selected_codes:
-        slots = count_slots(selected_codes)
-        if slots < len(selected_codes):
-            st.info(f"Выбрано {len(selected_codes)} кодов — засчитывается как {slots} слота из 5")
-        else:
-            st.info(f"Использовано {slots} из 5 слотов")
-
     st.subheader("Выберите вузы (до 5)")
     if selected_cities_flow1:
         vuz_options = []
