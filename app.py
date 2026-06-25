@@ -312,6 +312,29 @@ VUZ_RATING = {
     "УУНиТ": 100,
 }
 
+AREA_GROUPS = {
+    "IT и программирование":            ["02", "09", "10"],
+    "Математика и физика":              ["01", "03"],
+    "Инженерия и технологии":           ["11", "12", "13", "14", "15", "16", "17", "22", "27", "28", "29"],
+    "Химия и материалы":                ["04", "18"],
+    "Архитектура, строительство и дизайн": ["07", "08", "54"],
+    "Транспорт и авиация":              ["23", "24", "25", "26"],
+    "Науки о земле и экология":         ["05", "20", "21"],
+    "Биология":                         ["06"],
+    "Медицина и фармация":              ["30", "31", "32", "33", "34"],
+    "Сельское хозяйство и ветеринария": ["35", "36"],
+    "Экономика и управление":           ["38"],
+    "Юриспруденция":                    ["40"],
+    "Психология и социология":          ["37", "39"],
+    "Политология и медиа":              ["41", "42"],
+    "Педагогика":                       ["44"],
+    "Лингвистика и филология":          ["45"],
+    "История и гуманитарные науки":     ["46", "47", "48"],
+    "Сервис и туризм":                  ["43"],
+    "Физическая культура и спорт":      ["49"],
+    "Искусство и творчество":           ["50", "51", "52", "53", "55"],
+}
+
 def get_vuz_rating(vuz_name):
     """Возвращает позицию вуза в рейтинге или 999 если не найден"""
     for key, rank in VUZ_RATING.items():
@@ -950,8 +973,9 @@ vuzline.ru
         st.error(f"Ошибка отправки письма: {e}")
         st.code(traceback.format_exc())
         return False
-def show_results(result, flow=1, paid=False):
+def show_results(result, flow=1, paid=False, selected_areas=None):
     result_few = pd.DataFrame()
+    result_backup = pd.DataFrame()
     if len(result) == 0:
         st.warning("По вашему запросу ничего не найдено.")
         return
@@ -1000,32 +1024,53 @@ def show_results(result, flow=1, paid=False):
         vuz_good_count = real_competition[real_competition["Шансы"].isin(good_zones)].groupby("Вуз").size()
         main_vuz = vuz_good_count[vuz_good_count >= 3].sort_values(ascending=False)
         few_vuz = vuz_good_count[(vuz_good_count >= 1) & (vuz_good_count < 3)].sort_values(ascending=False)
-
-        # Сортируем топ-7 с учётом рейтинга вузов:
-        # сначала вузы из рейтинга топ-100 с ≥4 вариантами (в порядке рейтинга),
-        # затем остальные по количеству подходящих вариантов
-        main_vuz_list = list(main_vuz.index)
-        rated_vuz = sorted(
-            [v for v in main_vuz_list if get_vuz_rating(v) < 999 and main_vuz[v] >= 4],
-            key=lambda v: get_vuz_rating(v)
-        )
-        unrated_vuz = [v for v in main_vuz_list if v not in rated_vuz]
-        top_vuz = (rated_vuz + unrated_vuz)[:7]
         few_vuz_list = list(few_vuz.index)
 
-        result_main_rows = []
-        for vuz in top_vuz:
-            vuz_df = result[result["Вуз"] == vuz].copy()
-            seen_codes = set()
-            for _, row in vuz_df.iterrows():
-                code_prefix = row["Код и специальность"].split(" ")[0][:5]
-                if code_prefix not in seen_codes:
-                    if len(seen_codes) >= 5: continue
-                    seen_codes.add(code_prefix)
-                result_main_rows.append(row)
-        result_main = pd.DataFrame(result_main_rows).reset_index(drop=True)
-        if "_chance_p" in result_main.columns:
-            result_main = result_main.drop(columns=["_chance_p"])
+        def sort_vuz_by_rating(vuz_list):
+            rated = sorted(
+                [v for v in vuz_list if get_vuz_rating(v) < 999 and main_vuz.get(v, 0) >= 4],
+                key=lambda v: get_vuz_rating(v)
+            )
+            unrated = [v for v in vuz_list if v not in rated]
+            return rated + unrated
+
+        def build_vuz_block(vuz_list):
+            rows = []
+            for vuz in vuz_list:
+                vuz_df = result[result["Вуз"] == vuz].copy()
+                seen_codes = set()
+                for _, row in vuz_df.iterrows():
+                    code_prefix = row["Код и специальность"].split(" ")[0][:5]
+                    if code_prefix not in seen_codes:
+                        if len(seen_codes) >= 5:
+                            continue
+                        seen_codes.add(code_prefix)
+                    rows.append(row)
+            df_out = pd.DataFrame(rows).reset_index(drop=True) if rows else pd.DataFrame()
+            if len(df_out) > 0 and "_chance_p" in df_out.columns:
+                df_out = df_out.drop(columns=["_chance_p"])
+            return df_out
+
+        main_vuz_list = list(main_vuz.index)
+        if selected_areas:
+            area_prefixes = set()
+            for area in selected_areas:
+                for prefix in AREA_GROUPS.get(area, []):
+                    area_prefixes.add(prefix)
+            good_result = real_competition[real_competition["Шансы"].isin(good_zones)]
+            def vuz_in_area(vuz):
+                vuz_codes = good_result[good_result["Вуз"] == vuz]["Код и специальность"]
+                return any(str(c).split(".")[0] in area_prefixes for c in vuz_codes)
+            area_vuz_list = [v for v in main_vuz_list if vuz_in_area(v)]
+            backup_vuz_list = [v for v in main_vuz_list if not vuz_in_area(v)]
+            top_area = sort_vuz_by_rating(area_vuz_list)[:7]
+            top_backup = sort_vuz_by_rating(backup_vuz_list)[:7]
+        else:
+            top_area = sort_vuz_by_rating(main_vuz_list)[:7]
+            top_backup = []
+
+        result_main = build_vuz_block(top_area)
+        result_backup = build_vuz_block(top_backup) if top_backup else pd.DataFrame()
 
         result_few_rows = []
         for vuz in few_vuz_list:
@@ -1034,18 +1079,26 @@ def show_results(result, flow=1, paid=False):
             for _, row in vuz_df.iterrows():
                 code_prefix = row["Код и специальность"].split(" ")[0][:5]
                 if code_prefix not in seen_codes:
-                    if len(seen_codes) >= 5: continue
+                    if len(seen_codes) >= 5:
+                        continue
                     seen_codes.add(code_prefix)
                 result_few_rows.append(row)
         result_few = pd.DataFrame(result_few_rows).reset_index(drop=True) if result_few_rows else pd.DataFrame()
-        if len(result_few) > 0:
-            if "_chance_p" in result_few.columns:
-                result_few = result_few.drop(columns=["_chance_p"])
+        if len(result_few) > 0 and "_chance_p" in result_few.columns:
+            result_few = result_few.drop(columns=["_chance_p"])
 
-        result = result_main
-        st.info(f"Показаны топ-{len(top_vuz)} вузов с наибольшим количеством подходящих специальностей")
+        result = result_main if len(result_main) > 0 else pd.DataFrame()
+
+        if selected_areas:
+            if len(result_main) > 0:
+                st.subheader("🎯 Ваши направления")
+                st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
+            else:
+                st.warning("По выбранным направлениям не нашлось вузов с хорошими шансами. Ниже — подстраховочные варианты из других областей.")
+        else:
+            st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
         if len(result_few) > 0:
-            st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
+            st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже"
 
     if not paid:
         preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
@@ -1127,7 +1180,18 @@ def show_results(result, flow=1, paid=False):
 Запишитесь на персональную консультацию со скидкой 500 руб. по промокоду **VUZLINE500**
         """)
 
-    if flow == 2 and 'result_few' in dir() and len(result_few) > 0:
+    if flow == 2 and len(result_backup) > 0:
+        st.divider()
+        st.subheader("🛡 Подстраховочные варианты")
+        st.caption("Эти вузы не относятся к выбранным направлениям, но там есть специальности с хорошими шансами — стоит рассмотреть как запасной вариант")
+        if not paid:
+            preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
+            preview_backup = result_backup[[c for c in preview_cols if c in result_backup.columns]].copy()
+            st.dataframe(preview_backup, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(result_backup, use_container_width=True, hide_index=True)
+
+    if flow == 2 and len(result_few) > 0:
         with st.expander("📋 Вузы с 1-2 подходящими вариантами"):
             st.caption("В этих вузах мало подходящих специальностей под ваши предметы и баллы")
             if not paid:
@@ -1261,6 +1325,11 @@ if flow == "🔍 Подобрать варианты по моим ЕГЭ":
         "Показывать специальности с ДВИ", value=False,
         help="ДВИ — дополнительное вступительное испытание в вузе"
     )
+    selected_areas = st.multiselect(
+        "Профессиональные области (необязательно)",
+        list(AREA_GROUPS.keys()),
+        help="Выберите интересующие направления — они будут показаны в первую очередь. Если не выбрать — покажем все подходящие специальности"
+    )
     if st.button("🔍 Найти специальности", type="primary"):
         errors = []
         if not subjects.get("Русский язык"): errors.append("Введите балл за Русский язык")
@@ -1276,6 +1345,7 @@ if flow == "🔍 Подобрать варианты по моим ЕГЭ":
             else:
                 st.session_state["last_result"] = result.to_dict()
                 st.session_state["last_flow"] = 2
+                st.session_state["last_areas"] = selected_areas
                 st.session_state["last_subjects"] = subjects
                 st.session_state["last_cities"] = selected_cities
                 st.session_state["last_gto"] = gto_val
@@ -1366,4 +1436,5 @@ if "last_result" in st.session_state and "last_flow" in st.session_state:
     if "payment_url" not in st.session_state:
         result = pd.DataFrame.from_dict(st.session_state["last_result"])
         paid = st.session_state.get("paid", False)
-        show_results(result, flow=st.session_state["last_flow"], paid=paid)
+        show_results(result, flow=st.session_state["last_flow"], paid=paid,
+                     selected_areas=st.session_state.get("last_areas", []))
