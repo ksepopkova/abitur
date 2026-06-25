@@ -562,11 +562,13 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             result_df_slim["_chance_sort"] = result_df_slim["Шансы"].map(lambda x: chance_priority.get(x, 9))
             result_df_slim["_rating_sort"] = result_df_slim["Вуз"].map(lambda x: get_vuz_rating(x))
             if flow == 2:
-                # Флоу 2: зеркалим логику экрана — топ-7 вузов с ≥3 хорошими вариантами
+                # Флоу 2: зеркалим логику экрана — топ-7 вузов, порог как в show_results
                 good_zones_raw = {"podstrahovka", "realistic", "probable"}
                 good_rows = result_df_slim[result_df_slim["Шансы"].isin(good_zones_raw)]
                 vuz_good_count = good_rows.groupby("Вуз").size()
-                main_vuz = vuz_good_count[vuz_good_count >= 3]
+                vuz_with_3plus = vuz_good_count[vuz_good_count >= 3]
+                min_good_options = 1 if len(vuz_with_3plus) < 3 else 3
+                main_vuz = vuz_good_count[vuz_good_count >= min_good_options]
                 # Сортируем: сначала рейтинговые с ≥4 вариантами, потом остальные
                 rated = sorted(
                     [v for v in main_vuz.index if get_vuz_rating(v) < 999 and main_vuz[v] >= 4],
