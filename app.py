@@ -1027,9 +1027,12 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
               (pd.to_numeric(result["Средний балл"], errors="coerce") <= 1))
         ]
         vuz_good_count = real_competition[real_competition["Шансы"].isin(good_zones)].groupby("Вуз").size()
-        # Если у абитуриента низкий балл (< 200) — снимаем отсечку по количеству вариантов
-        max_score = pd.to_numeric(result["Конкурсный балл"], errors="coerce").max()
-        min_good_options = 1 if max_score < 200 else 3
+        # Если вузов с 3+ хорошими вариантами меньше 3 — снимаем отсечку и показываем все
+        vuz_with_3plus = vuz_good_count[vuz_good_count >= 3]
+        if len(vuz_with_3plus) < 3:
+            min_good_options = 1
+        else:
+            min_good_options = 3
         main_vuz = vuz_good_count[vuz_good_count >= min_good_options].sort_values(ascending=False)
         few_vuz = vuz_good_count[(vuz_good_count >= 1) & (vuz_good_count < min_good_options)].sort_values(ascending=False)
         few_vuz_list = list(few_vuz.index)
