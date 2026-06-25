@@ -418,9 +418,14 @@ def expand_code_set(selected_codes, df):
     ХХ.ХХ.00 = групповой уровень
     ХХ.ХХ.ХХ = конкретная специальность
     """
-    all_db_codes = set(df.iloc[:, 25].astype(str).str.strip().tolist())
+    all_db_codes = set(
+        c for c in df.iloc[:, 25].astype(str).str.strip().tolist()
+        if c and c.lower() != 'nan'
+    )
     expanded = set(selected_codes)
     for code in selected_codes:
+        if not code or str(code).lower() == 'nan':
+            continue
         num_part = code.split(' ')[0]
         parts = num_part.split('.')
         if len(parts) != 3:
