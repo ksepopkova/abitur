@@ -989,7 +989,6 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         st.warning("По вашему запросу ничего не найдено.")
         return
 
-    st.success(f"Найдено {len(result)} специальностей")
     result = result.copy()
     result["chance_order"] = result["Шансы"].map(CHANCE_ORDER)
     result = result.sort_values(["Город", "Вуз", "chance_order"]).drop("chance_order", axis=1)
@@ -1007,15 +1006,11 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         mask = (score_num - pb_num) < 70
         result = result[mask | pb_num.isna() | score_num.isna()]
 
-    # Предупреждение когда много вариантов но шансы в основном плохие
     good_statuses_set = {"🟢 Уверенно", "🔵 Реалистично", "🟡 Вероятно"}
     good_count = result["Шансы"].isin(good_statuses_set).sum()
-    if len(result) >= 10 and good_count == 0:
-        st.warning("⚠️ Среди найденных вариантов нет специальностей с хорошими шансами — все результаты относятся к категориям «Рискованно», «Маловероятно» или «Нет данных». Рекомендуем снизить планку или расширить список вузов.")
-    elif len(result) >= 10 and good_count / len(result) < 0.15:
-        st.warning(f"⚠️ Среди найденных вариантов только {good_count} с хорошими шансами. Большинство — «Рискованно» или «Маловероятно». Рекомендуем добавить другие профессиональные области, чтобы увеличить количество вариантов, или уберите их вовсе.")
 
     if flow == 1:
+        st.success(f"Найдено {len(result)} специальностей")
         vuz_counts = result.groupby("Вуз")["Код и специальность"].nunique()
         overloaded = vuz_counts[vuz_counts > 5]
         if len(overloaded) > 0:
@@ -1116,14 +1111,21 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
 
         result = result_main if len(result_main) > 0 else pd.DataFrame()
 
+        good_in_main = result_main["Шансы"].isin(good_statuses_set).sum() if len(result_main) > 0 else 0
+        good_in_backup = result_backup["Шансы"].isin(good_statuses_set).sum() if len(result_backup) > 0 else 0
+        total_good = good_in_main + good_in_backup
         if selected_areas:
             if len(result_main) > 0:
+                st.success(f"Найдено {total_good} вариантов с хорошими шансами по выбранным направлениям")
                 st.subheader("🎯 Ваши направления")
                 st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
             else:
                 st.warning("По выбранным направлениям не нашлось вузов с хорошими шансами. Ниже — подстраховочные варианты из других областей.")
         else:
+            st.success(f"Найдено {total_good} вариантов с хорошими шансами")
             st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
+        if total_good < 5:
+            st.warning("⚠️ Мало вариантов с хорошими шансами. Попробуйте добавить другие профессиональные области или уберите фильтр по областям вовсе.")
         if len(result_few) > 0:
             st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
