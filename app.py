@@ -1127,6 +1127,14 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
     if not paid:
+        # Сохраняем обработанный результат для письма (все три блока)
+        if flow == 2:
+            frames = [df for df in [result_main, result_backup, result_few] if len(df) > 0]
+            processed = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        else:
+            processed = result
+        st.session_state["last_processed_result"] = processed.to_dict()
+
         preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
         preview = result[[c for c in preview_cols if c in result.columns]].copy()
         st.dataframe(preview, use_container_width=True, hide_index=True)
@@ -1168,7 +1176,8 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                         "Балл за ДВИ": str(st.session_state.get("last_dvi", "")),
                         "Payment ID": str(payment_id),
                     }
-                    result_df = pd.DataFrame.from_dict(st.session_state["last_result"])
+                    raw = st.session_state.get("last_processed_result", st.session_state["last_result"])
+                    result_df = pd.DataFrame.from_dict(raw)
                     save_payment_data(
                         order_id, result_df, search_params,
                         st.session_state["user_email"],
