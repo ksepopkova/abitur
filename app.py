@@ -1098,7 +1098,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         else:
             st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
         if len(result_few) > 0:
-            st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже"
+            st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
     if not paid:
         preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
