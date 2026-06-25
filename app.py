@@ -464,7 +464,7 @@ def filter_rows_flow2(df, subjects, show_dvi, selected_city_groups, gto, attesta
     return pd.DataFrame(results)
 
 def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat, selected_cities=None, dvi_score=None):
-    expanded_codes = expand_code_set(selected_codes, df)
+    expanded_codes = expand_code_set(selected_codes, df) if selected_codes else set()
     results = []
     for _, row in df.iterrows():
         city_raw = str(row.iloc[22]).strip()
@@ -472,8 +472,9 @@ def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat,
         vuz = clean_str(row.iloc[23])
         code = clean_str(row.iloc[25])
         if selected_cities and city_group not in selected_cities: continue
-        if vuz not in selected_vuz: continue
-        if code not in expanded_codes: continue
+        if selected_vuz and vuz not in selected_vuz: continue
+        if expanded_codes and code not in expanded_codes: continue
+        if not selected_vuz and not expanded_codes: continue
         if not has_budget_places(row.iloc[27]): continue
         status = check_row(row, subjects)
         if status is None: continue
@@ -993,6 +994,18 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
     result = result.sort_values(["Город", "Вуз", "chance_order"]).drop("chance_order", axis=1)
     result["Шансы"] = result["Шансы"].map(CHANCE_LABEL)
 
+    # Тоггл скрытия вариантов сильно ниже уровня абитуриента
+    hide_low = st.toggle(
+        "Скрыть специальности сильно ниже моего уровня",
+        value=False,
+        help="Скрывает строки где ваш балл превышает проходной на 70+ баллов"
+    )
+    if hide_low and "Конкурсный балл" in result.columns and "Проходной балл" in result.columns:
+        pb_num = pd.to_numeric(result["Проходной балл"], errors="coerce")
+        score_num = pd.to_numeric(result["Конкурсный балл"], errors="coerce")
+        mask = (score_num - pb_num) < 70
+        result = result[mask | pb_num.isna() | score_num.isna()]
+
     # Предупреждение когда много вариантов но шансы в основном плохие
     good_statuses_set = {"🟢 Уверенно", "🔵 Реалистично", "🟡 Вероятно"}
     good_count = result["Шансы"].isin(good_statuses_set).sum()
@@ -1374,7 +1387,19 @@ else:
         help="Москва и МО / Питер и ЛО идут как один выбор",
         key="cities_flow1"
     )
-    st.subheader("Выберите коды специальностей (до 5)")
+    selected_areas_flow1 = st.multiselect(
+        "Профессиональные области (необязательно)",
+        list(AREA_GROUPS.keys()),
+        help="Выберите интересующие направления — они сузят список кодов специальностей ниже",
+        key="areas_flow1"
+    )
+    area_prefixes_flow1 = set()
+    if selected_areas_flow1:
+        for area in selected_areas_flow1:
+            for prefix in AREA_GROUPS.get(area, []):
+                area_prefixes_flow1.add(prefix)
+
+    st.subheader("Выберите коды специальностей (необязательно)")
     if len(subjects) >= 2:
         available_codes = []
         seen = set()
@@ -1386,10 +1411,17 @@ else:
             if status is not None:
                 code = clean_str(row.iloc[25])
                 if code and code not in seen:
+                    if area_prefixes_flow1:
+                        code_prefix = code.split('.')[0]
+                        if code_prefix not in area_prefixes_flow1:
+                            continue
                     seen.add(code)
                     available_codes.append(code)
         available_codes = sorted(available_codes)
-        st.caption(f"Показаны специальности подходящие под ваши предметы ({len(available_codes)} из {len(all_codes)})")
+        if selected_areas_flow1:
+            st.caption(f"Показаны специальности по выбранным областям ({len(available_codes)} из {len(all_codes)})")
+        else:
+            st.caption(f"Показаны специальности подходящие под ваши предметы ({len(available_codes)} из {len(all_codes)})")
     else:
         available_codes = all_codes
         st.caption("Введите предметы ЕГЭ выше чтобы отфильтровать подходящие специальности")
@@ -1425,8 +1457,7 @@ else:
         errors = []
         if not subjects.get("Русский язык"): errors.append("Введите балл за Русский язык")
         if len(subjects) < 2: errors.append("Введите минимум 2 предмета")
-        if not selected_vuz: errors.append("Выберите хотя бы один вуз")
-        if not selected_codes: errors.append("Выберите хотя бы один код специальности")
+        if not selected_vuz and not selected_codes: errors.append("Выберите хотя бы один вуз или один код специальности")
         if errors:
             for e in errors: st.error(e)
         else:
@@ -1434,7 +1465,7 @@ else:
                 result = filter_rows_flow1(df, subjects, selected_vuz, selected_codes,
                                            gto_val, attestat, selected_cities_flow1, dvi_score)
             if len(result) == 0:
-                st.warning("По выбранным вузам и специальностям ничего не найдено.")
+                st.warning("По выбранным параметрам ничего не найдено. Попробуйте расширить поиск.")
             else:
                 st.session_state["last_result"] = result.to_dict()
                 st.session_state["last_flow"] = 1
