@@ -550,7 +550,8 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             "Конкурсный балл", "Шансы", "Стоимость обучения (Москва и СПб), тыс руб"] if c in result_df.columns]
         result_df_slim = result_df[cols_to_keep].copy()
         # Для флоу 2 оставляем только вузы с минимум 3 подходящими вариантами
-        if flow == 2 and "Вуз" in result_df_slim.columns:
+        # (только если данные не были уже обработаны в show_results)
+        if flow == 2 and not already_processed and "Вуз" in result_df_slim.columns:
             vuz_counts = result_df_slim.groupby("Вуз")["Код и специальность"].count()
             vuzы_ok = vuz_counts[vuz_counts >= 3].index
             result_df_slim = result_df_slim[result_df_slim["Вуз"].isin(vuzы_ok)]
