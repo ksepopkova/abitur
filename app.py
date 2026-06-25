@@ -511,7 +511,7 @@ def get_sheets_client():
     )
     return gspread.authorize(creds)
 
-def save_payment_data(order_id, result_df, search_params, user_email, flow, payment_id=None):
+def save_payment_data(order_id, result_df, search_params, user_email, flow, payment_id=None, already_processed=False):
     # Сохраняем в session_state
     if "payment_store" not in st.session_state:
         st.session_state["payment_store"] = {}
@@ -562,7 +562,10 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         if "Шансы" in result_df_slim.columns and "Вуз" in result_df_slim.columns:
             result_df_slim["_chance_sort"] = result_df_slim["Шансы"].map(lambda x: chance_priority.get(x, 9))
             result_df_slim["_rating_sort"] = result_df_slim["Вуз"].map(lambda x: get_vuz_rating(x))
-            if flow == 2:
+            if already_processed:
+                # Данные уже обработаны в show_results — просто сортируем для отображения
+                result_df_slim = result_df_slim.sort_values(["Город", "Вуз", "_chance_sort"]).drop(columns=["_chance_sort", "_rating_sort"])
+            elif flow == 2:
                 # Флоу 2: зеркалим логику экрана — топ-7 вузов, порог как в show_results
                 good_zones_raw = {"podstrahovka", "realistic", "probable"}
                 good_rows = result_df_slim[result_df_slim["Шансы"].isin(good_zones_raw)]
@@ -570,14 +573,12 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
                 vuz_with_3plus = vuz_good_count[vuz_good_count >= 3]
                 min_good_options = 1 if len(vuz_with_3plus) < 3 else 3
                 main_vuz = vuz_good_count[vuz_good_count >= min_good_options]
-                # Сортируем: сначала рейтинговые с ≥4 вариантами, потом остальные
                 rated = sorted(
                     [v for v in main_vuz.index if get_vuz_rating(v) < 999 and main_vuz[v] >= 4],
                     key=lambda v: get_vuz_rating(v)
                 )
                 unrated = [v for v in main_vuz.index if v not in rated]
                 top_vuz = (rated + unrated)[:7]
-                # Для каждого вуза берём до 5 уникальных кодов
                 rows_out = []
                 for vuz in top_vuz:
                     vuz_df = result_df_slim[result_df_slim["Вуз"] == vuz].copy()
@@ -1176,13 +1177,15 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                         "Балл за ДВИ": str(st.session_state.get("last_dvi", "")),
                         "Payment ID": str(payment_id),
                     }
-                    raw = st.session_state.get("last_processed_result", st.session_state["last_result"])
+                    is_processed = "last_processed_result" in st.session_state
+                    raw = st.session_state["last_processed_result"] if is_processed else st.session_state["last_result"]
                     result_df = pd.DataFrame.from_dict(raw)
                     save_payment_data(
                         order_id, result_df, search_params,
                         st.session_state["user_email"],
                         st.session_state.get("last_flow", 2),
-                        payment_id=payment_id
+                        payment_id=payment_id,
+                        already_processed=is_processed
                     )
                     st.session_state["payment_id"] = payment_id
                     st.session_state["payment_url"] = payment_url
