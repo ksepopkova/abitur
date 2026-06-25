@@ -419,12 +419,12 @@ def expand_code_set(selected_codes, df):
     ХХ.ХХ.ХХ = конкретная специальность
     """
     all_db_codes = set(
-        c for c in df.iloc[:, 25].astype(str).str.strip().tolist()
-        if c and c.lower() != 'nan'
+        str(c).strip() for c in df.iloc[:, 25].tolist()
+        if pd.notna(c) and str(c).strip() and str(c).strip().lower() != 'nan'
     )
     expanded = set(selected_codes)
     for code in selected_codes:
-        if not code or str(code).lower() == 'nan':
+        if not code or str(code).strip().lower() == 'nan':
             continue
         num_part = code.split(' ')[0]
         parts = num_part.split('.')
