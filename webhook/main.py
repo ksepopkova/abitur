@@ -233,8 +233,22 @@ def build_excel(result_df, search_params):
         "new": "Нет данных",
         "no_dvi_score": "Нет оценки — не указан балл за ДВИ",
     }
+    # Нормализуем Шансы: убираем emoji-префикс если данные уже обработаны
+    emoji_strip = {
+        "🟢 Уверенно": "podstrahovka",
+        "🔵 Реалистично": "realistic",
+        "🟡 Вероятно": "probable",
+        "🔴 Рискованно": "risky",
+        "⚫ Маловероятно": "unlikely",
+        "🔹 Квоты и БВИ": "quota_bvi",
+        "◾ Общего конкурса не было": "no_competition",
+        "⬜ Нет данных": "new",
+        "⬜ Нет оценки — не указан балл за ДВИ": "no_dvi_score",
+    }
     if "Шансы" in df_out.columns:
-        df_out.loc[:, "Шансы"] = df_out["Шансы"].map(lambda x: chance_label.get(x, x))
+        df_out.loc[:, "Шансы"] = df_out["Шансы"].map(
+            lambda x: chance_label.get(emoji_strip.get(x, x), x)
+        )
 
     cols = list(df_out.columns)
     for ci, col_name in enumerate(cols, 1):
@@ -416,7 +430,11 @@ async def yookassa_webhook(request: Request):
     try:
         logger.info(f"Загружены данные для order_id={order_id}, email={record['user_email']}")
         result_df = pd.DataFrame.from_dict(record["result"])
-        result_df = result_df.astype(str).replace('None', '').replace('nan', '')
+        # Очищаем None/nan не теряя числовые типы
+        for col in result_df.columns:
+            result_df[col] = result_df[col].apply(
+                lambda x: "" if x is None or (isinstance(x, float) and pd.isna(x)) or str(x) in ("None", "nan") else x
+            )
         logger.info(f"DataFrame сформирован, строк: {len(result_df)}")
         send_result_email(record["user_email"], result_df, record["search_params"])
         logger.info(f"Письмо успешно отправлено на {record['user_email']} (order_id={order_id})")

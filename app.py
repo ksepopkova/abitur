@@ -1039,14 +1039,8 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
               (pd.to_numeric(result["Средний балл"], errors="coerce") <= 1))
         ]
         vuz_good_count = real_competition[real_competition["Шансы"].isin(good_zones)].groupby("Вуз").size()
-        # Если вузов с 3+ хорошими вариантами меньше 3 — снимаем отсечку и показываем все
-        vuz_with_3plus = vuz_good_count[vuz_good_count >= 3]
-        if len(vuz_with_3plus) < 3:
-            min_good_options = 1
-        else:
-            min_good_options = 3
-        main_vuz = vuz_good_count[vuz_good_count >= min_good_options].sort_values(ascending=False)
-        few_vuz = vuz_good_count[(vuz_good_count >= 1) & (vuz_good_count < min_good_options)].sort_values(ascending=False)
+        main_vuz = vuz_good_count[vuz_good_count >= 3].sort_values(ascending=False)
+        few_vuz = vuz_good_count[(vuz_good_count >= 1) & (vuz_good_count < 3)].sort_values(ascending=False)
         few_vuz_list = list(few_vuz.index)
 
         def sort_vuz_by_rating(vuz_list):
@@ -1112,21 +1106,14 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
 
         result = result_main if len(result_main) > 0 else pd.DataFrame()
 
-        good_in_main = result_main["Шансы"].isin(good_statuses_set).sum() if len(result_main) > 0 else 0
-        good_in_backup = result_backup["Шансы"].isin(good_statuses_set).sum() if len(result_backup) > 0 else 0
-        total_good = good_in_main + good_in_backup
         if selected_areas:
             if len(result_main) > 0:
-                st.success(f"Найдено {total_good} вариантов с хорошими шансами по выбранным направлениям")
                 st.subheader("🎯 Ваши направления")
                 st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
             else:
                 st.warning("По выбранным направлениям не нашлось вузов с хорошими шансами. Ниже — подстраховочные варианты из других областей.")
         else:
-            st.success(f"Найдено {total_good} вариантов с хорошими шансами")
             st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
-        if total_good < 5:
-            st.warning("⚠️ Мало вариантов с хорошими шансами. Попробуйте добавить другие профессиональные области или уберите фильтр по областям вовсе.")
         if len(result_few) > 0:
             st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
@@ -1137,6 +1124,21 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             processed = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         else:
             processed = result
+        # Конвертируем emoji-метки обратно в raw ключи для webhook совместимости
+        emoji_to_raw = {
+            "🟢 Уверенно": "podstrahovka",
+            "🔵 Реалистично": "realistic",
+            "🟡 Вероятно": "probable",
+            "🔴 Рискованно": "risky",
+            "⚫ Маловероятно": "unlikely",
+            "🔹 Квоты и БВИ": "quota_bvi",
+            "◾ Общего конкурса не было": "no_competition",
+            "⬜ Нет данных": "new",
+            "⬜ Нет оценки — не указан балл за ДВИ": "no_dvi_score",
+        }
+        if "Шансы" in processed.columns:
+            processed = processed.copy()
+            processed["Шансы"] = processed["Шансы"].map(lambda x: emoji_to_raw.get(x, x))
         st.session_state["last_processed_result"] = processed.to_dict()
 
         preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
