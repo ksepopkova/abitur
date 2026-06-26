@@ -1115,7 +1115,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             if selected_areas:
                 if len(result_main) > 0:
                     total_rows = sum(len(df) for df in [result_main, result_backup, result_few] if len(df) > 0)
-                st.success(f"Найдено {total_good} вариантов с хорошими шансами (всего в таблице {total_rows} образовательных программ)")
+                    st.success(f"Найдено {total_good} вариантов с хорошими шансами (всего в таблице {total_rows} образовательных программ)")
                     st.subheader("🎯 Ваши направления")
                     st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
                 else:
