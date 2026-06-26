@@ -1108,18 +1108,21 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             result_backup = pd.DataFrame()
             result_few = pd.DataFrame()
             result = result_main
-            st.info(f"Показаны все доступные варианты: {len(result)} специальностей")
+            total_rows = len(result)
+            st.info(f"Показаны все доступные варианты: {total_rows} образовательных программ")
         else:
             result = result_main if len(result_main) > 0 else pd.DataFrame()
             if selected_areas:
                 if len(result_main) > 0:
-                    st.success(f"Найдено {total_good} вариантов с хорошими шансами по выбранным направлениям")
+                    total_rows = sum(len(df) for df in [result_main, result_backup, result_few] if len(df) > 0)
+                st.success(f"Найдено {total_good} вариантов с хорошими шансами (всего в таблице {total_rows} образовательных программ)")
                     st.subheader("🎯 Ваши направления")
                     st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
                 else:
                     st.warning("По выбранным направлениям не нашлось вузов с хорошими шансами. Ниже — подстраховочные варианты из других областей.")
             else:
-                st.success(f"Найдено {total_good} вариантов с хорошими шансами")
+                total_rows = sum(len(df) for df in [result_main, result_backup, result_few] if len(df) > 0)
+                st.success(f"Найдено {total_good} вариантов с хорошими шансами (всего в таблице {total_rows} образовательных программ)")
                 st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
             if total_good < 5:
                 st.warning("⚠️ Мало вариантов с хорошими шансами. Попробуйте добавить другие профессиональные области или убрать фильтр по областям вовсе.")
