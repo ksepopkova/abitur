@@ -1097,7 +1097,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             result_few = result_few.drop(columns=["_chance_p"])
 
         # Отдельный блок для вузов у которых есть только ДВИ-программы без оценки шансов
-        dvi_no_score = result[result["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
+        dvi_no_score = result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
         vuz_in_main = set(result_main["Вуз"].unique()) if len(result_main) > 0 else set()
         vuz_in_backup = set(result_backup["Вуз"].unique()) if len(result_backup) > 0 else set()
         vuz_in_few = set(result_few["Вуз"].unique()) if len(result_few) > 0 else set()
@@ -1122,6 +1122,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             total_rows = len(result)
             st.info(f"Показаны все доступные варианты: {total_rows} образовательных программ")
         else:
+            result_full = result.copy()  # сохраняем полный result до перезаписи
             result = result_main if len(result_main) > 0 else pd.DataFrame()
             if selected_areas:
                 if len(result_main) > 0:
