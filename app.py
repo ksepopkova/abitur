@@ -522,20 +522,7 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         "search_params": {k: str(v) for k, v in search_params.items()},
         "result": result_df.to_dict(),
     }
-    # Сохраняем в /tmp (доступно на Streamlit Cloud, страховка для return_url-флоу)
-    try:
-        filename = f"/tmp/payment_{order_id}.json"
-        data = {
-            "payment_id": str(payment_id) if payment_id else "",
-            "user_email": user_email,
-            "flow": flow,
-            "search_params": {k: str(v) for k, v in search_params.items()},
-            "result": result_df.to_dict(),
-        }
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-    except Exception as e:
-        st.warning(f"Не удалось сохранить в файл: {e}")
+    # /tmp не используем — ненадёжно на облачных платформах
     # Сохраняем в Google Sheets — включая полный JSON с результатами (сжатый),
     # чтобы внешний webhook-сервис (Render) тоже мог прочитать данные
     # и отправить письмо независимо от Streamlit-приложения.
@@ -650,14 +637,7 @@ def load_payment_data(order_id):
     # Сначала session_state
     if order_id in st.session_state.get("payment_store", {}):
         return st.session_state["payment_store"][order_id]
-    # Потом /tmp файл
-    try:
-        filename = f"/tmp/payment_{order_id}.json"
-        if os.path.exists(filename):
-            with open(filename, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception as e:
-        st.warning(f"Не удалось загрузить из файла: {e}")
+    # /tmp не используем — ненадёжно на облачных платформах
     return None
 
 def check_payment_status(payment_id):
