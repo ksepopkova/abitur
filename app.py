@@ -1161,7 +1161,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                     # Генерируем order_id заранее и передаём в return_url
                     order_id = str(uuid.uuid4())
                     st.session_state["pending_order_id"] = order_id
-                    return_url = f"https://vuzline-2026.streamlit.app/?order_id={order_id}"
+                    return_url = f"https://app.vuzline.ru/?order_id={order_id}"
                     payment_url, payment_id = create_payment(
                         amount=2490,
                         description="Подбор вузов по ЕГЭ — полная таблица",
