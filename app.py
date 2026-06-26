@@ -1143,7 +1143,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
     if not paid:
         # Сохраняем обработанный результат для письма (все три блока)
         if flow == 2:
-            frames = [df for df in [result_main, result_backup, result_few] if len(df) > 0]
+            frames = [df for df in [result_main, result_backup, result_few, result_dvi] if len(df) > 0]
             processed = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         else:
             processed = result
