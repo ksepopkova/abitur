@@ -1011,7 +1011,12 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
     good_count = result["Шансы"].isin(good_statuses_set).sum()
 
     if flow == 1:
-        st.success(f"Найдено {len(result)} специальностей")
+        good_count_f1 = result["Шансы"].isin({"🟢 Уверенно", "🔵 Реалистично", "🟡 Вероятно"}).sum()
+        st.success(f"Найдено {len(result)} специальностей, из них {good_count_f1} с хорошими шансами")
+        if good_count_f1 == 0:
+            st.warning("⚠️ Среди найденных вариантов нет специальностей с хорошими шансами — все результаты относятся к категориям «Рискованно», «Маловероятно» или «Нет данных».")
+        elif good_count_f1 / len(result) < 0.15:
+            st.warning(f"⚠️ Среди найденных вариантов только {good_count_f1} с хорошими шансами. Большинство — «Рискованно» или «Маловероятно».")
         vuz_counts = result.groupby("Вуз")["Код и специальность"].nunique()
         overloaded = vuz_counts[vuz_counts > 5]
         if len(overloaded) > 0:
