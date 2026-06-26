@@ -503,9 +503,21 @@ if "payment_store" not in st.session_state:
 import gspread
 from google.oauth2.service_account import Credentials
 
+def get_secret(key):
+    """Читает секрет из os.environ (Render) или st.secrets (Streamlit Cloud)"""
+    import os
+    if key in os.environ:
+        return os.environ[key]
+    return st.secrets[key]
+
 def get_sheets_client():
+    import os, json
+    if "GCP_SERVICE_ACCOUNT_JSON" in os.environ:
+        creds_dict = json.loads(os.environ["GCP_SERVICE_ACCOUNT_JSON"])
+    else:
+        creds_dict = dict(st.secrets["gcp_service_account"])
     creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
+        creds_dict,
         scopes=["https://spreadsheets.google.com/feeds",
                 "https://www.googleapis.com/auth/drive"]
     )
@@ -530,7 +542,7 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         import gzip
         import base64
         client = get_sheets_client()
-        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        sheet = client.open_by_key(get_secret("SHEETS_ID")).sheet1
         # Оставляем только нужные колонки для письма
         cols_to_keep = [c for c in ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль",
             "Мест", "Проходной балл", "Средний балл", "Ваш балл (ЕГЭ)", "Достижения",
@@ -614,7 +626,7 @@ def get_email_sent_status(order_id):
     """Проверяет в Google Sheets, было ли уже отправлено письмо для этого order_id"""
     try:
         client = get_sheets_client()
-        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        sheet = client.open_by_key(get_secret("SHEETS_ID")).sheet1
         cell = sheet.find(order_id, in_column=1)
         if cell:
             status = sheet.cell(cell.row, 6).value  # столбец F
@@ -627,7 +639,7 @@ def mark_email_sent(order_id):
     """Отмечает в Google Sheets, что письмо отправлено"""
     try:
         client = get_sheets_client()
-        sheet = client.open_by_key(st.secrets["SHEETS_ID"]).sheet1
+        sheet = client.open_by_key(get_secret("SHEETS_ID")).sheet1
         cell = sheet.find(order_id, in_column=1)
         if cell:
             sheet.update_cell(cell.row, 6, "sent")  # столбец F
@@ -908,7 +920,7 @@ def send_email(to_email, result_df, search_params):
 
         # Создаём письмо
         msg = MIMEMultipart()
-        msg["From"] = st.secrets["EMAIL_FROM"]
+        msg["From"] = get_secret("EMAIL_FROM")
         msg["To"] = to_email
         msg["Subject"] = "Ваша таблица подбора вузов — Vuzline"
 
@@ -943,11 +955,11 @@ vuzline.ru
         try:
             with smtplib.SMTP_SSL("smtp.yandex.ru", 465) as server:
                 server.login(
-                    str(st.secrets["EMAIL_FROM"]),
-                    str(st.secrets["EMAIL_PASSWORD"])
+                    str(get_secret("EMAIL_FROM")),
+                    str(get_secret("EMAIL_PASSWORD"))
                 )
                 server.sendmail(
-                    str(st.secrets["EMAIL_FROM"]),
+                    str(get_secret("EMAIL_FROM")),
                     str(to_email),
                     msg.as_string()
                 )
@@ -1232,8 +1244,8 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
 
 # ─── ИНТЕРФЕЙС ────────────────────────────────────────────────────────────
 df = load_data()
-Configuration.account_id = st.secrets["YUKASSA_SHOP_ID"]
-Configuration.secret_key = st.secrets["YUKASSA_SECRET_KEY"]
+Configuration.account_id = get_secret("YUKASSA_SHOP_ID")
+Configuration.secret_key = get_secret("YUKASSA_SECRET_KEY")
 city_options = get_city_options(df)
 all_codes = get_all_codes(df)
 
