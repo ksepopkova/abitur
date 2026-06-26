@@ -1153,11 +1153,17 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         st.caption("Ниже — список подходящих образовательных программ. Баллы, оценка шансов и рекомендации по приоритетам откроются после оплаты.")
         preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
         preview = result[[c for c in preview_cols if c in result.columns]].copy()
+        # Для подсчёта строк в письме учитываем все блоки
+        if flow == 2:
+            all_frames = [df for df in [result_main, result_backup, result_few] if len(df) > 0]
+            total_rows = sum(len(df) for df in all_frames)
+        else:
+            total_rows = len(result)
         st.dataframe(preview, use_container_width=True, hide_index=True)
         st.info(f"""
 🔒 **Полная таблица доступна после оплаты**
 
-В таблице {len(preview)} образовательных программ. После оплаты вы увидите:
+В таблице {total_rows} образовательных программ. После оплаты вы увидите:
 - Проходной и средний балл по каждой специальности
 - Ваш конкурсный балл с учётом указанных достижений в каждом вузе
 - Оценку шансов на поступление и рекомендуемый приоритет по каждой программе
