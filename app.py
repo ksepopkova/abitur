@@ -481,21 +481,7 @@ def filter_rows_flow1(df, subjects, selected_vuz, selected_codes, gto, attestat,
         results.append(build_result_row(row, subjects, gto, attestat, dvi_score))
     return pd.DataFrame(results)
 
-def count_slots(selected_codes):
-    slots = set()
-    for code in selected_codes:
-        parts = code.split(' ')[0]
-        if len(parts) >= 7:
-            prefix = parts[:5]
-            suffix = parts[5:]
-            if suffix == '.00':
-                slots.add(prefix + '.00')
-            else:
-                has_multi = any(c.split(' ')[0] == prefix + '.00' for c in selected_codes)
-                slots.add(prefix + '.00' if has_multi else code)
-        else:
-            slots.add(code)
-    return len(slots)
+
 # Глобальное хранилище платежей (живёт пока приложение запущено)
 if "payment_store" not in st.session_state:
     st.session_state["payment_store"] = {}
@@ -1101,18 +1087,36 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         if len(result_few) > 0 and "_chance_p" in result_few.columns:
             result_few = result_few.drop(columns=["_chance_p"])
 
-        result = result_main if len(result_main) > 0 else pd.DataFrame()
+        good_in_main = result_main["Шансы"].isin(good_zones).sum() if len(result_main) > 0 else 0
+        good_in_backup = result_backup["Шансы"].isin(good_zones).sum() if len(result_backup) > 0 else 0
+        total_good = good_in_main + good_in_backup
+        no_good_anywhere = total_good == 0
 
-        if selected_areas:
-            if len(result_main) > 0:
-                st.subheader("🎯 Ваши направления")
-                st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
-            else:
-                st.warning("По выбранным направлениям не нашлось вузов с хорошими шансами. Ниже — подстраховочные варианты из других областей.")
+        if no_good_anywhere:
+            # Нет хороших вариантов нигде — показываем всё без ограничений
+            st.warning("⚠️ По вашим параметрам не нашлось вариантов с хорошими шансами. В таблице будут показаны все доступные варианты включая рискованные. Переходя к оплате, учтите это.")
+            all_vuz_list = list(result["Вуз"].unique())
+            result_main = build_vuz_block(all_vuz_list)
+            result_backup = pd.DataFrame()
+            result_few = pd.DataFrame()
+            result = result_main
+            st.info(f"Показаны все доступные варианты: {len(result)} специальностей")
         else:
-            st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
-        if len(result_few) > 0:
-            st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
+            result = result_main if len(result_main) > 0 else pd.DataFrame()
+            if selected_areas:
+                if len(result_main) > 0:
+                    st.success(f"Найдено {total_good} вариантов с хорошими шансами по выбранным направлениям")
+                    st.subheader("🎯 Ваши направления")
+                    st.caption(f"Топ-{len(top_area)} вузов по выбранным областям")
+                else:
+                    st.warning("По выбранным направлениям не нашлось вузов с хорошими шансами. Ниже — подстраховочные варианты из других областей.")
+            else:
+                st.success(f"Найдено {total_good} вариантов с хорошими шансами")
+                st.info(f"Показаны топ-{len(top_area)} вузов с наибольшим количеством подходящих специальностей")
+            if total_good < 5:
+                st.warning("⚠️ Мало вариантов с хорошими шансами. Попробуйте добавить другие профессиональные области или убрать фильтр по областям вовсе.")
+            if len(result_few) > 0:
+                st.caption(f"Ещё {len(few_vuz_list)} вузов с 1-2 подходящими вариантами показаны ниже")
 
     if not paid:
         # Сохраняем обработанный результат для письма (все три блока)
@@ -1264,7 +1268,10 @@ if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
             payment_id = data.get("payment_id", "")
             if check_payment_status(payment_id):
                 result_df = pd.DataFrame.from_dict(data["result"])
-                result_df = result_df.astype(str).replace('None', '').replace('nan', '')
+                for col in result_df.columns:
+                    result_df[col] = result_df[col].apply(
+                        lambda x: "" if x is None or (isinstance(x, float) and pd.isna(x)) or str(x) in ("None", "nan") else x
+                    )
                 if send_email(data["user_email"], result_df, data["search_params"]):
                     st.session_state[f"sent_{order_id_from_url}"] = True
                     mark_email_sent(order_id_from_url)
