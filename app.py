@@ -996,6 +996,13 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             st.warning("⚠️ Среди найденных вариантов нет специальностей с хорошими шансами — все результаты относятся к категориям «Рискованно», «Маловероятно» или «Нет данных».")
         elif good_count_f1 / len(result) < 0.15:
             st.warning(f"⚠️ Среди найденных вариантов только {good_count_f1} с хорошими шансами. Большинство — «Рискованно» или «Маловероятно».")
+        # Проверяем какие из выбранных вузов не попали в результаты
+        last_vuz = st.session_state.get("last_vuz", [])
+        if last_vuz:
+            vuz_in_result = set(result["Вуз"].unique())
+            missing_vuz = [v for v in last_vuz if v not in vuz_in_result]
+            if missing_vuz:
+                st.info(f"⚠️ Следующие вузы не попали в результаты — выбранные специальности там недоступны по вашим предметам или нет бюджетных мест: {', '.join(missing_vuz)}")
         vuz_counts = result.groupby("Вуз")["Код и специальность"].nunique()
         overloaded = vuz_counts[vuz_counts > 5]
         if len(overloaded) > 0:
@@ -1507,6 +1514,7 @@ else:
             else:
                 st.session_state["last_result"] = result.to_dict()
                 st.session_state["last_flow"] = 1
+                st.session_state["last_vuz"] = selected_vuz
                 st.session_state["last_subjects"] = subjects
                 st.session_state["last_cities"] = selected_cities_flow1
                 st.session_state["last_gto"] = gto_val
