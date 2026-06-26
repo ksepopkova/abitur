@@ -1107,6 +1107,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         if "_chance_p" in result_dvi.columns:
             result_dvi = result_dvi.drop(columns=["_chance_p"])
 
+        result_full = result.copy()  # сохраняем до перезаписи result
         good_in_main = result_main["Шансы"].isin(good_zones).sum() if len(result_main) > 0 else 0
         good_in_backup = result_backup["Шансы"].isin(good_zones).sum() if len(result_backup) > 0 else 0
         total_good = good_in_main + good_in_backup
@@ -1123,7 +1124,6 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             total_rows = len(result)
             st.info(f"Показаны все доступные варианты: {total_rows} образовательных программ")
         else:
-            result_full = result.copy()  # сохраняем полный result до перезаписи
             result = result_main if len(result_main) > 0 else pd.DataFrame()
             if selected_areas:
                 if len(result_main) > 0:
