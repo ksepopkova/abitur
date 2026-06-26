@@ -1095,6 +1095,16 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         if len(result_few) > 0 and "_chance_p" in result_few.columns:
             result_few = result_few.drop(columns=["_chance_p"])
 
+        # Отдельный блок для вузов у которых есть только ДВИ-программы без оценки шансов
+        dvi_no_score = result[result["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
+        vuz_in_main = set(result_main["Вуз"].unique()) if len(result_main) > 0 else set()
+        vuz_in_backup = set(result_backup["Вуз"].unique()) if len(result_backup) > 0 else set()
+        vuz_in_few = set(result_few["Вуз"].unique()) if len(result_few) > 0 else set()
+        already_shown = vuz_in_main | vuz_in_backup | vuz_in_few
+        result_dvi = dvi_no_score[~dvi_no_score["Вуз"].isin(already_shown)].copy()
+        if "_chance_p" in result_dvi.columns:
+            result_dvi = result_dvi.drop(columns=["_chance_p"])
+
         good_in_main = result_main["Шансы"].isin(good_zones).sum() if len(result_main) > 0 else 0
         good_in_backup = result_backup["Шансы"].isin(good_zones).sum() if len(result_backup) > 0 else 0
         total_good = good_in_main + good_in_backup
@@ -1253,6 +1263,15 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
 💡 **Хотите разобрать результаты вместе?**
 Запишитесь на персональную консультацию со скидкой 500 руб. по промокоду **VUZLINE500**
         """)
+
+    if flow == 2 and len(result_dvi) > 0:
+        with st.expander(f"📝 Вузы с ДВИ — оценка шансов недоступна ({result_dvi['Вуз'].nunique()} вузов)"):
+            st.caption("Для этих специальностей требуется дополнительное вступительное испытание в вузе. Укажите балл за ДВИ выше чтобы увидеть оценку шансов. Подать заявление можно и без этого балла — его вы получите уже после прохождения испытания в вузе.")
+            preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
+            if not paid:
+                st.dataframe(result_dvi[[c for c in preview_cols if c in result_dvi.columns]], use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(result_dvi, use_container_width=True, hide_index=True)
 
     if flow == 2 and len(result_backup) > 0:
         st.divider()
