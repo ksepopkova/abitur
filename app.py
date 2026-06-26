@@ -965,6 +965,7 @@ vuzline.ru
 def show_results(result, flow=1, paid=False, selected_areas=None):
     result_few = pd.DataFrame()
     result_backup = pd.DataFrame()
+    result_dvi = pd.DataFrame()
     if len(result) == 0:
         st.warning("По вашему запросу ничего не найдено.")
         return
