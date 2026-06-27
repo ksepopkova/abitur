@@ -1097,16 +1097,13 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         if len(result_few) > 0 and "_chance_p" in result_few.columns:
             result_few = result_few.drop(columns=["_chance_p"])
 
-        # Сохраняем полный result ДО перезаписи — нужен для result_dvi
-        result_full = result.copy()
-
         # Вузы которые не попали ни в один основной блок
-        if len(result_full) > 0 and "Шансы" in result_full.columns:
+        if len(result) > 0 and "Шансы" in result.columns:
             vuz_in_main = set(result_main["Вуз"].unique()) if len(result_main) > 0 else set()
             vuz_in_backup = set(result_backup["Вуз"].unique()) if len(result_backup) > 0 else set()
             vuz_in_few = set(result_few["Вуз"].unique()) if len(result_few) > 0 else set()
             already_shown = vuz_in_main | vuz_in_backup | vuz_in_few
-            result_dvi = result_full[~result_full["Вуз"].isin(already_shown)].copy()
+            result_dvi = result[~result["Вуз"].isin(already_shown)].copy()
             if "_chance_p" in result_dvi.columns:
                 result_dvi = result_dvi.drop(columns=["_chance_p"])
 
