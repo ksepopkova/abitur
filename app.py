@@ -1097,6 +1097,9 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         if len(result_few) > 0 and "_chance_p" in result_few.columns:
             result_few = result_few.drop(columns=["_chance_p"])
 
+        # Сохраняем полный result ДО перезаписи — нужен для result_dvi
+        result_full = result.copy()
+
         # Отдельный блок для вузов у которых есть только ДВИ-программы без оценки шансов
         if len(result_full) > 0 and "Шансы" in result_full.columns:
             dvi_no_score = result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
@@ -1108,7 +1111,6 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             if "_chance_p" in result_dvi.columns:
                 result_dvi = result_dvi.drop(columns=["_chance_p"])
 
-        result_full = result.copy()  # сохраняем до перезаписи result
         good_in_main = result_main["Шансы"].isin(good_zones).sum() if len(result_main) > 0 else 0
         good_in_backup = result_backup["Шансы"].isin(good_zones).sum() if len(result_backup) > 0 else 0
         total_good = good_in_main + good_in_backup
