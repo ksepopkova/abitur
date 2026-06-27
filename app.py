@@ -1100,27 +1100,13 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         # Сохраняем полный result ДО перезаписи — нужен для result_dvi
         result_full = result.copy()
 
-        # Отдельный блок для вузов с ДВИ которые не попали в основные блоки
+        # Вузы которые не попали ни в один основной блок
         if len(result_full) > 0 and "Шансы" in result_full.columns:
             vuz_in_main = set(result_main["Вуз"].unique()) if len(result_main) > 0 else set()
             vuz_in_backup = set(result_backup["Вуз"].unique()) if len(result_backup) > 0 else set()
             vuz_in_few = set(result_few["Вуз"].unique()) if len(result_few) > 0 else set()
             already_shown = vuz_in_main | vuz_in_backup | vuz_in_few
-            # Вузы с ДВИ без оценки (балл не указан)
-            dvi_no_score = result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
-            # Вузы с ДВИ где балл оценён но шансы низкие (риск/маловер) и вуз не попал в основные блоки
-            dvi_low = result_full[
-                result_full["Шансы"].isin({"🔴 Рискованно", "⚫ Маловероятно"}) &
-                ~result_full["Вуз"].isin(already_shown)
-            ]
-            # Оставляем только вузы где ВСЕ программы требуют ДВИ
-            dvi_vuz_all = set(result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]["Вуз"].unique())
-            # Объединяем no_score и low_chance для ДВИ-вузов
-            dvi_combined = pd.concat([
-                dvi_no_score[~dvi_no_score["Вуз"].isin(already_shown)],
-                dvi_low[dvi_low["Вуз"].isin(dvi_vuz_all | set(dvi_no_score["Вуз"].unique()))]
-            ], ignore_index=True).drop_duplicates()
-            result_dvi = dvi_combined.copy()
+            result_dvi = result_full[~result_full["Вуз"].isin(already_shown)].copy()
             if "_chance_p" in result_dvi.columns:
                 result_dvi = result_dvi.drop(columns=["_chance_p"])
 
@@ -1284,8 +1270,8 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         """)
 
     if flow == 2 and len(result_dvi) > 0:
-        with st.expander(f"📝 Вузы с ДВИ — оценка шансов недоступна ({result_dvi['Вуз'].nunique()} вузов)"):
-            st.caption("Для этих специальностей требуется дополнительное вступительное испытание в вузе. Укажите балл за ДВИ выше чтобы увидеть оценку шансов. Подать заявление можно и без этого балла — его вы получите уже после прохождения испытания в вузе.")
+        with st.expander(f"📝 Дополнительные варианты ({result_dvi['Вуз'].nunique()} вузов)"):
+            st.caption("Эти вузы не вошли в основную выдачу — либо требуют ДВИ без указанного балла, либо шансы там невысокие. Подать заявление можно, но оцените риски.")
             preview_cols = ["Город", "Вуз", "Факультет", "Код и специальность", "Профиль"]
             if not paid:
                 st.dataframe(result_dvi[[c for c in preview_cols if c in result_dvi.columns]], use_container_width=True, hide_index=True)
