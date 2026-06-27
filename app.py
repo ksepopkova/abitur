@@ -1100,14 +1100,27 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         # Сохраняем полный result ДО перезаписи — нужен для result_dvi
         result_full = result.copy()
 
-        # Отдельный блок для вузов у которых есть только ДВИ-программы без оценки шансов
+        # Отдельный блок для вузов с ДВИ которые не попали в основные блоки
         if len(result_full) > 0 and "Шансы" in result_full.columns:
-            dvi_no_score = result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
             vuz_in_main = set(result_main["Вуз"].unique()) if len(result_main) > 0 else set()
             vuz_in_backup = set(result_backup["Вуз"].unique()) if len(result_backup) > 0 else set()
             vuz_in_few = set(result_few["Вуз"].unique()) if len(result_few) > 0 else set()
             already_shown = vuz_in_main | vuz_in_backup | vuz_in_few
-            result_dvi = dvi_no_score[~dvi_no_score["Вуз"].isin(already_shown)].copy()
+            # Вузы с ДВИ без оценки (балл не указан)
+            dvi_no_score = result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]
+            # Вузы с ДВИ где балл оценён но шансы низкие (риск/маловер) и вуз не попал в основные блоки
+            dvi_low = result_full[
+                result_full["Шансы"].isin({"🔴 Рискованно", "⚫ Маловероятно"}) &
+                ~result_full["Вуз"].isin(already_shown)
+            ]
+            # Оставляем только вузы где ВСЕ программы требуют ДВИ
+            dvi_vuz_all = set(result_full[result_full["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]["Вуз"].unique())
+            # Объединяем no_score и low_chance для ДВИ-вузов
+            dvi_combined = pd.concat([
+                dvi_no_score[~dvi_no_score["Вуз"].isin(already_shown)],
+                dvi_low[dvi_low["Вуз"].isin(dvi_vuz_all | set(dvi_no_score["Вуз"].unique()))]
+            ], ignore_index=True).drop_duplicates()
+            result_dvi = dvi_combined.copy()
             if "_chance_p" in result_dvi.columns:
                 result_dvi = result_dvi.drop(columns=["_chance_p"])
 
