@@ -13,7 +13,7 @@ from email import encoders
 from datetime import datetime
 from yookassa import Configuration, Payment
 
-st.set_page_config(page_title="Подбор вузов", layout="wide")
+st.set_page_config(page_title="Подбор вузов по ЕГЭ от Vuzline", page_icon="logo.png", layout="wide")
 
 OBL = {
     "Русский язык": 0, "Математика": 1, "Обществознание": 2,
@@ -1187,7 +1187,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
 Таблица придёт на указанный email автоматически в течение 1-2 минут после оплаты.
 Если письмо не пришло — напишите на result@vuzline.ru, пришлём вручную.
 
-**Стоимость: 2 490 руб.**
+**Стоимость: 1 490 руб.**
         """)
         st.divider()
         user_email_input = st.text_input(
@@ -1209,7 +1209,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                     st.session_state["pending_order_id"] = order_id
                     return_url = f"https://app.vuzline.ru/?order_id={order_id}"
                     payment_url, payment_id = create_payment(
-                        amount=2490,
+                        amount=1490,
                         description="Подбор вузов по ЕГЭ — полная таблица",
                         return_url=return_url,
                         order_id=order_id
@@ -1332,7 +1332,11 @@ if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
         else:
             st.info("Платёж обрабатывается... Обновите страницу через минуту.")
 
-st.title("🎓 Подбор вузов по ЕГЭ")
+col_logo, col_title = st.columns([1, 8])
+with col_logo:
+    st.image("logo.png", width=80)
+with col_title:
+    st.title("Подбор вузов по ЕГЭ от Vuzline")
 
 st.warning("""
 🎯 **Сервис только для поступающих на бюджет на общих основаниях на основном этапе приёмной кампании 2026.**
@@ -1342,7 +1346,7 @@ st.warning("""
 
 # Если есть payment_url — показываем кнопку перехода к оплате
 if "payment_url" in st.session_state:
-    st.link_button("💳 Перейти к оплате (2 490 руб.)", st.session_state["payment_url"], type="primary")
+    st.link_button("💳 Перейти к оплате (1 490 руб.)", st.session_state["payment_url"], type="primary")
     st.caption("После оплаты таблица придёт на почту автоматически в течение 1-2 минут. Если письмо не пришло в течение 5 минут — проверьте папку «Спам» или напишите на result@vuzline.ru.")
 
     if st.button("❌ Отменить и начать заново"):
