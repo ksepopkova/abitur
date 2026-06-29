@@ -13,9 +13,7 @@ from email import encoders
 from datetime import datetime
 from yookassa import Configuration, Payment
 
-from PIL import Image as _PILImage
-_favicon = _PILImage.open("logo.png")
-st.set_page_config(page_title="Vuzline — подбор вузов", page_icon=_favicon, layout="wide")
+st.set_page_config(page_title="Vuzline — подбор вузов", page_icon="🎓", layout="wide")
 
 OBL = {
     "Русский язык": 0, "Математика": 1, "Обществознание": 2,
