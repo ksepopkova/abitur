@@ -603,7 +603,7 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         ]
         all_values = sheet.get_all_values()
         next_row = len(all_values) + 1
-        sheet.update(f"A{next_row}", [row], value_input_option="RAW")
+        sheet.update(range_name=f"A{next_row}", values=[row], value_input_option="RAW")
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
