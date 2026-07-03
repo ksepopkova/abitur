@@ -606,8 +606,11 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         sheet.update(f"A{next_row}", [row], value_input_option="RAW")
     except Exception as e:
         import traceback
+        tb = traceback.format_exc()
+        print(f"[SHEETS ERROR] order_id={order_id} email={user_email} error={e}")
+        print(f"[SHEETS TRACEBACK] {tb}")
         st.warning(f"Не удалось сохранить в Google Sheets: {e}")
-        st.warning(traceback.format_exc())
+        st.warning(tb)
 def get_email_sent_status(order_id):
     """Проверяет в Google Sheets, было ли уже отправлено письмо для этого order_id"""
     try:
