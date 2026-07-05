@@ -1106,7 +1106,8 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             vuz_in_backup = set(result_backup["Вуз"].unique()) if len(result_backup) > 0 else set()
             vuz_in_few = set(result_few["Вуз"].unique()) if len(result_few) > 0 else set()
             already_shown = vuz_in_main | vuz_in_backup | vuz_in_few
-            result_dvi = result[~result["Вуз"].isin(already_shown)].copy()
+            dvi_vuz = set(result[result["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]["Вуз"].unique())
+        result_dvi = result[result["Вуз"].isin(dvi_vuz) & ~result["Вуз"].isin(already_shown)].copy()
             if "_chance_p" in result_dvi.columns:
                 result_dvi = result_dvi.drop(columns=["_chance_p"])
 
