@@ -603,9 +603,20 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             datetime.now().isoformat(),
             "",  # статус отправки письма — заполняется webhook-сервисом ("sent")
         ] + chunks
-        all_values = sheet.get_all_values()
-        next_row = len(all_values) + 1
-        sheet.update(range_name=f"A{next_row}", values=[row], value_input_option="RAW")
+        # Retry: Google API иногда отвечает 503, пробуем до 3 раз
+        import time
+        last_err = None
+        for attempt in range(3):
+            try:
+                sheet.append_row(row, value_input_option="RAW")
+                last_err = None
+                break
+            except Exception as retry_err:
+                last_err = retry_err
+                print(f"[SHEETS RETRY {attempt+1}/3] order_id={order_id} error={retry_err}")
+                time.sleep(2)
+        if last_err is not None:
+            raise last_err
     except Exception as e:
         import traceback
         tb = traceback.format_exc()
@@ -1197,7 +1208,21 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             value=st.session_state.get("user_email", "")
         )
         if user_email_input:
-            st.session_state["user_email"] = user_email_input
+            email_clean = ''.join(c for c in user_email_input.strip() if ord(c) < 128)
+            email_valid = re.match(r'^[\w.+-]+@[\w-]+\.[\w.-]+$', email_clean)
+            typo_domains = {
+                "ayndex.ru": "yandex.ru", "yadnex.ru": "yandex.ru", "yandx.ru": "yandex.ru",
+                "gmial.com": "gmail.com", "gamil.com": "gmail.com", "gmai.com": "gmail.com",
+                "mali.ru": "mail.ru", "mial.ru": "mail.ru", "maill.ru": "mail.ru",
+            }
+            domain = email_clean.split("@")[-1].lower() if "@" in email_clean else ""
+            if not email_valid:
+                st.error("Проверьте email — похоже, в адресе ошибка.")
+            elif domain in typo_domains:
+                st.warning(f"Возможно, вы имели в виду **@{typo_domains[domain]}**? Проверьте адрес перед оплатой — на него придёт таблица.")
+                st.session_state["user_email"] = email_clean
+            else:
+                st.session_state["user_email"] = email_clean
 
         if st.button("💳 Оплатить и получить полную таблицу", type="primary", key="pay_btn"):
             if not st.session_state.get("user_email"):
