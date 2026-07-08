@@ -1051,13 +1051,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             rows = []
             for vuz in vuz_list:
                 vuz_df = result[result["Вуз"] == vuz].copy()
-                seen_codes = set()
                 for _, row in vuz_df.iterrows():
-                    code_prefix = row["Код и специальность"].split(" ")[0][:5]
-                    if code_prefix not in seen_codes:
-                        if len(seen_codes) >= 5:
-                            continue
-                        seen_codes.add(code_prefix)
                     rows.append(row)
             df_out = pd.DataFrame(rows).reset_index(drop=True) if rows else pd.DataFrame()
             if len(df_out) > 0 and "_chance_p" in df_out.columns:
