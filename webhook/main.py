@@ -73,11 +73,12 @@ def load_payment_row(order_id):
     if not row_num:
         return None
     row_values = sheet.row_values(row_num)
-    # Структура строки: order_id, payment_id, email, flow, datetime, status, compressed_data
+    # Структура строки: order_id, payment_id, email, flow, datetime, status, chunk1, chunk2, ...
     if len(row_values) < 7:
         return None
     status = row_values[5] if len(row_values) > 5 else ""
-    compressed_b64 = row_values[6]
+    # Данные могут быть разбиты на несколько ячеек (чанков) — склеиваем всё начиная с 7-й колонки
+    compressed_b64 = "".join(row_values[6:])
     raw_json = gzip.decompress(base64.b64decode(compressed_b64)).decode("utf-8")
     data = json.loads(raw_json)
     return {

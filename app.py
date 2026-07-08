@@ -592,6 +592,9 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
         }
         raw_json = json.dumps(full_data, ensure_ascii=False)
         compressed_b64 = base64.b64encode(gzip.compress(raw_json.encode("utf-8"))).decode("ascii")
+        # Разбиваем данные на чанки по 45000 символов (лимит ячейки Sheets — 50000)
+        CHUNK = 45000
+        chunks = [compressed_b64[i:i+CHUNK] for i in range(0, len(compressed_b64), CHUNK)]
         row = [
             order_id,
             str(payment_id) if payment_id else "",
@@ -599,8 +602,7 @@ def save_payment_data(order_id, result_df, search_params, user_email, flow, paym
             str(flow),
             datetime.now().isoformat(),
             "",  # статус отправки письма — заполняется webhook-сервисом ("sent")
-            compressed_b64,
-        ]
+        ] + chunks
         all_values = sheet.get_all_values()
         next_row = len(all_values) + 1
         sheet.update(range_name=f"A{next_row}", values=[row], value_input_option="RAW")
