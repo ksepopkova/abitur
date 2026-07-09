@@ -1123,6 +1123,8 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
         total_good = good_in_main + good_in_backup
         no_good_anywhere = total_good == 0
 
+        result_full_for_email = result.copy()  # полный result до перезаписи — для письма
+
         if no_good_anywhere:
             # Нет хороших вариантов нигде — показываем всё без ограничений
             st.warning("⚠️ По вашим параметрам не нашлось вариантов с хорошими шансами. В таблице будут показаны все доступные варианты включая рискованные. Переходя к оплате, учтите это.")
@@ -1155,7 +1157,22 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
     if not paid:
         # Сохраняем обработанный результат для письма (все три блока)
         if flow == 2:
-            frames = [df for df in [result_main, result_backup, result_few, result_dvi] if len(df) > 0]
+            # Для письма расширяем блок few: добавляем Рискованно тех же вузов
+            # (на сайте expander показывает только хорошие — там не меняем)
+            result_few_email = result_few
+            if len(result_few) > 0 and "result_full_for_email" in dir():
+                few_vuz_set = set(result_few["Вуз"].unique())
+                risky_rows = result_full_for_email[
+                    result_full_for_email["Вуз"].isin(few_vuz_set) &
+                    (result_full_for_email["Шансы"] == "🔴 Рискованно")
+                ].copy()
+                if "_chance_p" in risky_rows.columns:
+                    risky_rows = risky_rows.drop(columns=["_chance_p"])
+                if len(risky_rows) > 0:
+                    result_few_email = pd.concat([result_few, risky_rows], ignore_index=True)
+                    result_few_email["_vuz_order"] = result_few_email["Вуз"]
+                    result_few_email = result_few_email.sort_values(["_vuz_order"]).drop(columns=["_vuz_order"]).reset_index(drop=True)
+            frames = [df for df in [result_main, result_backup, result_few_email, result_dvi] if len(df) > 0]
             processed = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         else:
             processed = result
