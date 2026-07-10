@@ -405,6 +405,7 @@ def build_result_row(row, subjects, gto, attestat, dvi_score=None):
         "Конкурсный балл":     total_score,
         "Шансы":               chance,
         "Рек. приоритет":      PRIORITY_LABEL[chance],
+        "_дви":                bool(dvi_required),
         "ГТО золото":          to_num(row.iloc[32]),
         "ГТО серебро":         to_num(row.iloc[33]),
         "ГТО бронза":          to_num(row.iloc[34]),
@@ -1067,8 +1068,9 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                 for _, row in vuz_df.iterrows():
                     rows.append(row)
             df_out = pd.DataFrame(rows).reset_index(drop=True) if rows else pd.DataFrame()
-            if len(df_out) > 0 and "_chance_p" in df_out.columns:
-                df_out = df_out.drop(columns=["_chance_p"])
+            for _col in ["_chance_p", "_дви"]:
+                if len(df_out) > 0 and _col in df_out.columns:
+                    df_out = df_out.drop(columns=[_col])
             return df_out
 
         main_vuz_list = list(main_vuz.index)
@@ -1104,8 +1106,9 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                     seen_codes.add(code_prefix)
                 result_few_rows.append(row)
         result_few = pd.DataFrame(result_few_rows).reset_index(drop=True) if result_few_rows else pd.DataFrame()
-        if len(result_few) > 0 and "_chance_p" in result_few.columns:
-            result_few = result_few.drop(columns=["_chance_p"])
+        for _col in ["_chance_p", "_дви"]:
+            if len(result_few) > 0 and _col in result_few.columns:
+                result_few = result_few.drop(columns=[_col])
 
         # Вузы которые не попали ни в один основной блок
         if len(result) > 0 and "Шансы" in result.columns:
@@ -1115,8 +1118,9 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
             already_shown = vuz_in_main | vuz_in_backup | vuz_in_few
             dvi_vuz = set(result[result["Шансы"] == "⬜ Нет оценки — не указан балл за ДВИ"]["Вуз"].unique())
             result_dvi = result[result["Вуз"].isin(dvi_vuz) & ~result["Вуз"].isin(already_shown)].copy()
-            if "_chance_p" in result_dvi.columns:
-                result_dvi = result_dvi.drop(columns=["_chance_p"])
+            for _col in ["_chance_p", "_дви"]:
+                if _col in result_dvi.columns:
+                    result_dvi = result_dvi.drop(columns=[_col])
 
         good_in_main = result_main["Шансы"].isin(good_zones).sum() if len(result_main) > 0 else 0
         good_in_backup = result_backup["Шансы"].isin(good_zones).sum() if len(result_backup) > 0 else 0
@@ -1166,8 +1170,9 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                     result_full_for_email["Вуз"].isin(few_vuz_set) &
                     (result_full_for_email["Шансы"] == "🔴 Рискованно")
                 ].copy()
-                if "_chance_p" in risky_rows.columns:
-                    risky_rows = risky_rows.drop(columns=["_chance_p"])
+                for _col in ["_chance_p", "_дви"]:
+                    if _col in risky_rows.columns:
+                        risky_rows = risky_rows.drop(columns=[_col])
                 if len(risky_rows) > 0:
                     result_few_email = pd.concat([result_few, risky_rows], ignore_index=True)
                     result_few_email["_vuz_order"] = result_few_email["Вуз"]
@@ -1183,12 +1188,36 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                     (result_full_for_email["Шансы"] == "🔴 Рискованно") &
                     ~result_full_for_email["Вуз"].isin(shown_vuz)
                 ].copy()
-                if "_chance_p" in result_risky_only.columns:
-                    result_risky_only = result_risky_only.drop(columns=["_chance_p"])
-            frames = [df for df in [result_main, result_backup, result_few_email, result_dvi, result_risky_only] if len(df) > 0]
+                for _col in ["_chance_p", "_дви"]:
+                    if _col in result_risky_only.columns:
+                        result_risky_only = result_risky_only.drop(columns=[_col])
+            # Если абитуриент указал балл ДВИ — он целится в ДВИ-направления:
+            # добавляем в письмо ВСЕ ДВИ-строки независимо от статуса шансов
+            result_dvi_all = pd.DataFrame()
+            try:
+                _dvi_val = float(st.session_state.get("last_dvi") or 0)
+            except (TypeError, ValueError):
+                _dvi_val = 0
+            if _dvi_val > 0 and "result_full_for_email" in dir() and len(result_full_for_email) > 0 and "_дви" in result_full_for_email.columns:
+                shown_keys = set()
+                for df_ in [result_main, result_backup, result_few_email, result_dvi, result_risky_only]:
+                    if len(df_) > 0:
+                        shown_keys |= set(df_["Вуз"].astype(str) + "|" + df_["Код и специальность"].astype(str) + "|" + df_["Профиль"].astype(str))
+                _keys = result_full_for_email["Вуз"].astype(str) + "|" + result_full_for_email["Код и специальность"].astype(str) + "|" + result_full_for_email["Профиль"].astype(str)
+                result_dvi_all = result_full_for_email[
+                    (result_full_for_email["_дви"] == True) & ~_keys.isin(shown_keys)
+                ].copy()
+                if len(result_dvi_all) > 0:
+                    result_dvi_all = result_dvi_all.sort_values("Вуз").reset_index(drop=True)
+                for _col in ["_chance_p", "_дви"]:
+                    if _col in result_dvi_all.columns:
+                        result_dvi_all = result_dvi_all.drop(columns=[_col])
+            frames = [df for df in [result_main, result_backup, result_few_email, result_dvi, result_risky_only, result_dvi_all] if len(df) > 0]
             processed = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+            if "_дви" in processed.columns:
+                processed = processed.drop(columns=["_дви"])
         else:
-            processed = result
+            processed = result.drop(columns=["_дви"], errors="ignore")
         # Конвертируем emoji-метки обратно в raw ключи для webhook совместимости
         emoji_to_raw = {
             "🟢 Уверенно": "podstrahovka",
@@ -1296,7 +1325,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                 except Exception as e:
                     st.error(f"Ошибка при создании платежа: {e}")
     else:
-        st.dataframe(result, use_container_width=True, hide_index=True)
+        st.dataframe(result.drop(columns=["_дви"], errors="ignore"), use_container_width=True, hide_index=True)
         show_disclaimers()
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
