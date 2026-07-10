@@ -1172,7 +1172,20 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
                     result_few_email = pd.concat([result_few, risky_rows], ignore_index=True)
                     result_few_email["_vuz_order"] = result_few_email["Вуз"]
                     result_few_email = result_few_email.sort_values(["_vuz_order"]).drop(columns=["_vuz_order"]).reset_index(drop=True)
-            frames = [df for df in [result_main, result_backup, result_few_email, result_dvi] if len(df) > 0]
+            # Вузы у которых НОЛЬ хороших вариантов, но есть Рискованно — тоже в письмо
+            result_risky_only = pd.DataFrame()
+            if "result_full_for_email" in dir() and len(result_full_for_email) > 0:
+                shown_vuz = set()
+                for df_ in [result_main, result_backup, result_few, result_dvi]:
+                    if len(df_) > 0:
+                        shown_vuz |= set(df_["Вуз"].unique())
+                result_risky_only = result_full_for_email[
+                    (result_full_for_email["Шансы"] == "🔴 Рискованно") &
+                    ~result_full_for_email["Вуз"].isin(shown_vuz)
+                ].copy()
+                if "_chance_p" in result_risky_only.columns:
+                    result_risky_only = result_risky_only.drop(columns=["_chance_p"])
+            frames = [df for df in [result_main, result_backup, result_few_email, result_dvi, result_risky_only] if len(df) > 0]
             processed = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         else:
             processed = result
