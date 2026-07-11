@@ -1,3 +1,5 @@
+import faulthandler
+faulthandler.enable()
 import streamlit as st
 import pandas as pd
 import re
