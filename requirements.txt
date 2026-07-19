@@ -6,3 +6,4 @@ xlsxwriter==3.2.0
 yookassa==3.5.0
 gspread==6.1.4
 google-auth==2.36.0
+psutil
