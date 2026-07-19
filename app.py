@@ -7,7 +7,9 @@ import io
 import uuid
 import json
 import os
+import gc
 import smtplib
+import psutil
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -16,6 +18,14 @@ from datetime import datetime
 from yookassa import Configuration, Payment
 
 st.set_page_config(page_title="Vuzline — подбор вузов", page_icon="🎓", layout="wide")
+
+def log_mem(tag=""):
+    """Логирование потребления памяти — для диагностики в логах Render"""
+    try:
+        rss = psutil.Process(os.getpid()).memory_info().rss / 1024**2
+        print(f"[MEM] {tag}: {rss:.0f} MB")
+    except Exception:
+        pass
 
 OBL = {
     "Русский язык": 0, "Математика": 1, "Обществознание": 2,
@@ -29,13 +39,16 @@ VYB = {
     "Физика": 18, "Информатика": 19, "География": 20, "Литература": 21,
 }
 
-@st.cache_data
+@st.cache_resource
 def load_data():
     # Канонический список названий колонок задаётся явно по позиции.
     # Это защищает от расхождений между листами Excel (например,
     # "Вуз" на одном листе и "ВУЗ" на другом, или лишний пустой столбец) —
     # такие расхождения ломают pd.concat, который объединяет по именам колонок,
     # а не по позиции, и приводят к "перекосу" данных между листами.
+    # ВАЖНО: cache_resource возвращает ОБЩИЙ объект для всех сессий.
+    # DataFrame нельзя мутировать после загрузки — только читать
+    # (или работать с копией через .copy()).
     CANONICAL_COLS = [
         "Русский язык", "Математика", "Обществознание", "История", "Иностранный язык",
         "Биология", "Химия", "Физика", "Информатика", "География", "Литература", "ДВИ",
@@ -74,22 +87,22 @@ def get_city_group(city_val):
         return "Санкт-Петербург и Ленинградская область"
     return s
 
-@st.cache_data
-def get_city_options(df):
-    cities = df.iloc[:, 22].dropna().unique()
+@st.cache_resource
+def get_city_options(_df):
+    cities = _df.iloc[:, 22].dropna().unique()
     groups = sorted(set(get_city_group(c) for c in cities))
     priority = ["Москва и Московская область", "Санкт-Петербург и Ленинградская область"]
     return priority + [g for g in groups if g not in priority]
 
-@st.cache_data
-def get_vuz_by_city(df, city_group):
-    mask = df.iloc[:, 22].apply(lambda x: get_city_group(x) == city_group)
-    vuzы = df[mask].iloc[:, 23].dropna().unique()
+@st.cache_data(ttl=3600, max_entries=10)
+def get_vuz_by_city(_df, city_group):
+    mask = _df.iloc[:, 22].apply(lambda x: get_city_group(x) == city_group)
+    vuzы = _df[mask].iloc[:, 23].dropna().unique()
     return sorted(set(str(v).strip() for v in vuzы if str(v).strip() not in ("", "nan")))
 
-@st.cache_data
-def get_all_codes(df):
-    codes = df.iloc[:, 25].dropna().unique()
+@st.cache_resource
+def get_all_codes(_df):
+    codes = _df.iloc[:, 25].dropna().unique()
     return sorted(set(str(c).strip() for c in codes if str(c).strip() not in ("", "nan")))
 
 def clean_str(val):
@@ -975,6 +988,13 @@ vuzline.ru
             st.code(traceback.format_exc())
             raise
 
+        # Явное освобождение памяти: Workbook и вложение — тяжёлые объекты
+        wb.close()
+        buf.close()
+        del wb, buf, msg, attachment, df_out
+        gc.collect()
+        log_mem("after_email")
+
         return True
     except Exception as e:
         import traceback
@@ -1385,6 +1405,7 @@ def show_results(result, flow=1, paid=False, selected_areas=None):
 
 # ─── ИНТЕРФЕЙС ────────────────────────────────────────────────────────────
 df = load_data()
+log_mem("run")
 Configuration.account_id = get_secret("YUKASSA_SHOP_ID")
 Configuration.secret_key = get_secret("YUKASSA_SECRET_KEY")
 city_options = get_city_options(df)
@@ -1398,6 +1419,10 @@ if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
     if get_email_sent_status(order_id_from_url):
         # Письмо уже отправлено вебхуком — просто сообщаем пользователю
         st.session_state[f"sent_{order_id_from_url}"] = True
+        # Чистим тяжёлые объекты сессии — результат уже в почте
+        for k in ["last_result", "last_processed_result"]:
+            st.session_state.pop(k, None)
+        st.session_state.get("payment_store", {}).pop(order_id_from_url, None)
         st.success("✅ Таблица уже отправлена вам на почту!")
     else:
         data = load_payment_data(order_id_from_url)
@@ -1412,6 +1437,10 @@ if order_id_from_url and not st.session_state.get(f"sent_{order_id_from_url}"):
                 if send_email(data["user_email"], result_df, data["search_params"]):
                     st.session_state[f"sent_{order_id_from_url}"] = True
                     mark_email_sent(order_id_from_url)
+                    # Чистим тяжёлые объекты сессии — результат уже в почте
+                    for k in ["last_result", "last_processed_result"]:
+                        st.session_state.pop(k, None)
+                    st.session_state.get("payment_store", {}).pop(order_id_from_url, None)
                     st.success(f"✅ Таблица отправлена на {data['user_email']}!")
                 else:
                     st.error("Ошибка отправки письма. Напишите нам на result@vuzline.ru и мы пришлём таблицу вручную.")
