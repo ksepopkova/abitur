@@ -1628,26 +1628,45 @@ else:
     )
     st.subheader("Выберите вузы (до 5)")
     if selected_cities_flow1:
+        vuz_cities = {}
         vuz_options = []
         for city_group in selected_cities_flow1:
-            vuz_options.extend(get_vuz_by_city(df, city_group))
+            for v in get_vuz_by_city(df, city_group):
+                vuz_options.append(v)
+                vuz_cities.setdefault(v, set()).add(city_group)
         vuz_options = sorted(set(vuz_options))
         if selected_codes:
             expanded_for_ui = expand_code_set(selected_codes, df)
             filtered_vuz = set()
+            vuz_cities = {}
             for _, row in df.iterrows():
                 city_raw = str(row.iloc[22]).strip()
-                if get_city_group(city_raw) not in selected_cities_flow1: continue
+                city_group = get_city_group(city_raw)
+                if city_group not in selected_cities_flow1: continue
                 code = clean_str(row.iloc[25])
                 if code in expanded_for_ui:
                     vuz = clean_str(row.iloc[23])
-                    if vuz: filtered_vuz.add(vuz)
+                    if vuz:
+                        filtered_vuz.add(vuz)
+                        vuz_cities.setdefault(vuz, set()).add(city_group)
             vuz_options = sorted(filtered_vuz)
             st.caption(f"Показаны вузы где есть выбранные специальности ({len(vuz_options)})")
     else:
         vuz_options = []
+        vuz_cities = {}
 
     selected_vuz = st.multiselect("Вузы *", vuz_options, max_selections=5)
+
+    if selected_vuz:
+        covered = set()
+        for v in selected_vuz:
+            covered |= vuz_cities.get(v, set())
+        empty_cities = [c for c in selected_cities_flow1 if c not in covered]
+        if empty_cities:
+            st.warning(
+                f"⚠️ По городам {', '.join(empty_cities)} вы не выбрали ни одного вуза — "
+                "результатов по ним не будет. Добавьте вузы из этих городов или уберите города."
+            )
 
     if st.button("🎯 Найти по моему списку", type="primary"):
         errors = []
@@ -1673,6 +1692,8 @@ else:
                 st.session_state["last_result"] = result.to_dict()
                 st.session_state["last_flow"] = 1
                 st.session_state["last_vuz"] = selected_vuz
+                st.session_state["last_codes"] = selected_codes
+                st.session_state["last_areas"] = selected_areas_flow1
                 st.session_state["last_subjects"] = subjects
                 st.session_state["last_cities"] = selected_cities_flow1
                 st.session_state["last_gto"] = gto_val
