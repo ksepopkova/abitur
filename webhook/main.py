@@ -8,8 +8,9 @@ POST-запрос. Сервис находит соответствующие д
 независимо от того, вернулся ли пользователь на сайт.
 
 Эндпоинты:
-  POST /webhook   — приём уведомлений от ЮКассы
-  GET  /health     — проверка живости сервиса (для Render health-check)
+  POST /webhook           — приём уведомлений от ЮКассы
+  POST /tilda/metodichka  — письмо со ссылкой на методичку после оплаты на сайте (Тильда)
+  GET  /health            — проверка живости сервиса (для Render health-check)
 """
 
 import os
@@ -22,9 +23,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+from urllib.parse import parse_qs
 
 import pandas as pd
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import PlainTextResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -46,6 +49,11 @@ SHEETS_ID = os.environ["SHEETS_ID"]
 GCP_SERVICE_ACCOUNT_JSON = os.environ["GCP_SERVICE_ACCOUNT_JSON"]  # весь JSON ключа сервисного аккаунта одной строкой
 EMAIL_FROM = os.environ["EMAIL_FROM"]
 EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
+
+# Методичка (оплата на сайте vuzline.ru через Тильду).
+# Необязательные: если TILDA_WEBHOOK_TOKEN не задан, эндпоинт /tilda/metodichka отвечает 403.
+TILDA_WEBHOOK_TOKEN = os.environ.get("TILDA_WEBHOOK_TOKEN", "")
+METODICHKA_URL = os.environ.get("METODICHKA_URL", "https://docs.google.com/document/d/1cLu6-d32t4fGg0OjdN-ncKRggb6LlvsetCsX5GlehYQ/edit?usp=sharing")
 
 Configuration.account_id = YUKASSA_SHOP_ID
 Configuration.secret_key = YUKASSA_SECRET_KEY
@@ -448,3 +456,91 @@ async def yookassa_webhook(request: Request):
         logger.error(f"Ошибка отправки письма: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+
+
+# ── Методичка: письмо после оплаты на сайте (Тильда) ──
+# Тильда присылает сюда данные заказа из корзины на странице методички.
+# В настройках ЮKassa в Тильде включено «Отправлять данные в сервисы приёма данных
+# только после оплаты», поэтому запрос приходит только по оплаченным заказам.
+
+_metodichka_sent = set()  # защита от повторной отправки, если Тильда пришлёт заказ дважды (до перезапуска)
+
+
+def send_metodichka_email(to_email, name=""):
+    msg = MIMEMultipart()
+    msg["From"] = EMAIL_FROM
+    msg["To"] = to_email
+    msg["Subject"] = "Ваша методичка по поступлению — Vuzline"
+
+    greeting = f"Здравствуйте, {name}!" if name else "Здравствуйте!"
+    body = f"""
+{greeting}
+
+Спасибо за покупку! Методичка по поступлению открывается по ссылке:
+{METODICHKA_URL}
+
+Сохраните это письмо — доступ к методичке остаётся у вас.
+
+Если остались вопросы — ответьте на это письмо или напишите менеджеру в Telegram: @vuzline_webinar.
+
+Удачи с поступлением!
+Команда Vuzline
+vuzline.ru
+    """
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    with smtplib.SMTP("smtp.yandex.ru", 587, timeout=30) as server:
+        server.ehlo()
+        server.starttls()
+        server.login(EMAIL_FROM, EMAIL_PASSWORD)
+        server.sendmail(EMAIL_FROM, to_email, msg.as_string())
+
+
+def parse_tilda_body(raw, content_type):
+    text = raw.decode("utf-8", errors="replace")
+    if "application/json" in content_type:
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    return {k: v[-1] for k, v in parse_qs(text, keep_blank_values=True).items()}
+
+
+@app.post("/tilda/metodichka")
+async def tilda_metodichka(request: Request, token: str = ""):
+    if not TILDA_WEBHOOK_TOKEN or token != TILDA_WEBHOOK_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    data = parse_tilda_body(await request.body(), request.headers.get("content-type", ""))
+
+    # Тестовый запрос Тильды при подключении вебхука
+    if data.get("test") == "test":
+        return PlainTextResponse("ok")
+
+    email = str(data.get("Email") or data.get("email") or "").strip()
+    name = str(data.get("Name") or data.get("name") or "").strip()
+    order_key = str(data.get("tranid") or data.get("payment[orderid]") or email)
+
+    # Отправляем только если в заказе есть методичка
+    if "методичк" not in json.dumps(data, ensure_ascii=False).lower():
+        logger.info(f"Тильда: в заказе {order_key} нет методички — пропускаем")
+        return PlainTextResponse("ok")
+
+    if "@" not in email:
+        logger.warning(f"Тильда: в заказе {order_key} нет корректного email")
+        return PlainTextResponse("ok")
+
+    if order_key in _metodichka_sent:
+        logger.info(f"Тильда: методичка по заказу {order_key} уже отправлена")
+        return PlainTextResponse("ok")
+
+    try:
+        send_metodichka_email(email, name)
+    except Exception as e:
+        logger.error(f"Тильда: не удалось отправить методичку на {email} (заказ {order_key}): {e}")
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+    _metodichka_sent.add(order_key)
+    logger.info(f"Тильда: методичка отправлена на {email} (заказ {order_key})")
+    return PlainTextResponse("ok")

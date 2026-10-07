@@ -14,6 +14,8 @@
 | `GCP_SERVICE_ACCOUNT_JSON` | Полное содержимое JSON-ключа сервисного аккаунта Google, **одной строкой** |
 | `EMAIL_FROM` | Адрес отправителя (Яндекс почта) |
 | `EMAIL_PASSWORD` | Пароль приложения для SMTP |
+| `TILDA_WEBHOOK_TOKEN` | Секретная строка для адреса вебхука методички (`/tilda/metodichka?token=...`). Без неё эндпоинт отвечает 403 |
+| `METODICHKA_URL` | Ссылка на методичку в письме (по умолчанию `https://docs.google.com/document/d/1cLu6-d32t4fGg0OjdN-ncKRggb6LlvsetCsX5GlehYQ/edit?usp=sharing`) |
 
 ## Деплой на Render.com
 
@@ -50,3 +52,15 @@ uvicorn main:app --reload
 ```
 
 Проверка: `curl http://localhost:8000/health`
+
+## Методичка: письмо после оплаты на сайте (Тильда)
+
+Эндпоинт `POST /tilda/metodichka?token=<TILDA_WEBHOOK_TOKEN>` принимает данные заказа из корзины
+на странице методички vuzline.ru и отправляет покупателю письмо со ссылкой `METODICHKA_URL`.
+
+Настройка в Тильде:
+1. Настройки сайта → Формы → Webhook: URL `https://vuzline-webhook.onrender.com/tilda/metodichka?token=<TILDA_WEBHOOK_TOKEN>`.
+2. В корзине на странице методички отметить этот Webhook в «Приём данных из формы».
+3. В настройках ЮKassa в Тильде включить «Отправлять данные в сервисы приёма данных только после оплаты».
+
+Письмо уходит, только если в заказе есть слово «методичка». Повторный запрос с тем же tranid не дублирует письмо (до перезапуска сервиса).
