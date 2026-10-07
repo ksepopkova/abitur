@@ -520,7 +520,15 @@ async def tilda_metodichka(request: Request, token: str = ""):
 
     email = str(data.get("Email") or data.get("email") or "").strip()
     name = str(data.get("Name") or data.get("name") or "").strip()
-    order_key = str(data.get("tranid") or data.get("payment[orderid]") or email)
+    payment = data.get("payment")
+    if isinstance(payment, str):
+        try:
+            payment = json.loads(payment)
+        except Exception:
+            payment = None
+    pay_order = payment.get("orderid") if isinstance(payment, dict) else None
+    order_key = str(data.get("tranid") or pay_order or data.get("payment[orderid]") or email)
+    logger.info(f"Тильда: получен заказ {order_key}, поля: {sorted(data.keys())}")
 
     # Отправляем только если в заказе есть методичка
     if "методичк" not in json.dumps(data, ensure_ascii=False).lower():
